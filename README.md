@@ -3,7 +3,7 @@
 
 ======================= IMPORTANT NOTICE =======================
 
-The authentication script is designed to collect information that will help Microsoft Customer Support Services (CSS) troubleshoot an issue you may be experiencing with Active Directory Federation Services.
+The script was designed to collect information that will help Microsoft Customer Support Services (CSS) troubleshoot an issue you may be experiencing with Active Directory Federation Services.
 The collected data may contain Personally Identifiable Information (PII) and/or sensitive data, such as (but not limited to) IP addresses; PC names; and user names.
 
 Once the tracing and data collection has completed, the script will save the data in a subdirectory from where this script is launched, with the server name, date and time.
