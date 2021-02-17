@@ -655,7 +655,7 @@ $gmsa = [Bool]($re.Entries.Attributes.objectclass.GetValues('string') -eq 'msDS-
     else
         { $KRBflags.Add("`n`tmsds-supportedencryptiontypes is not configured on the service account, Service tickets would be RC4 only!`n`tFor AES Support configure the msds-supportedencryptiontypes on the ADFS Service Account with a value of either:`n`t24(decimal) == AES only `n`t or `n`t28(decimal) == AES & RC4") }
 
-    "`nKerberos Encryption Types suppored by Service Account: " + ($KRBflags -join ' | ') |Out-File Get-ServicePrincipalNames.txt -Append
+    "`nKerberos Encryption Types supported by Service Account: " + ($KRBflags -join ' | ') |Out-File Get-ServicePrincipalNames.txt -Append
     "`nChecking for Duplicate SPNs( current ServiceAccount will be included in this check):`n" |out-file Get-ServicePrincipalNames.txt -Append
 
     $conn= (New-Object System.DirectoryServices.DirectoryEntry("GC://$domain/RootDSE")).dnshostname
