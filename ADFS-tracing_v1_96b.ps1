@@ -307,7 +307,7 @@ if ($FormsCOmpleted -eq [System.Windows.Forms.DialogResult]::OK)
     }
 elseif($FormsCOmpleted -eq [System.Windows.Forms.DialogResult]::Cancel)
     {
-    Write-host "Script was aborted by Cancel"
+    Write-host "Script was canceled by User" -ForegroundColor Red
     exit
     }
 }
@@ -322,7 +322,7 @@ Function Pause { param([String]$Message,[String]$MessageTitle,[String]$MessageC)
       Return
    }
    #If not ISE we prompt for key stroke
-   Write-Host -NoNewline $MessageC
+   Write-Host -NoNewline $MessageC -ForegroundColor Yellow
    While ($KeyInfo.VirtualKeyCode -Eq $Null -Or $Ignore -Contains $KeyInfo.VirtualKeyCode) {
       $KeyInfo = $Host.UI.RawUI.ReadKey("NoEcho, IncludeKeyDown")
    }
@@ -385,7 +385,7 @@ Function EnableDebugEvents ($events)
 	        }
     }
     else
-    { Write-Host "Debug Event Logging skipped due to selected scenario" }
+    { Write-Host "Debug Event Logging skipped due to selected scenario" -ForegroundColor DarkCyan }
 }
 
 Function LogManStart
@@ -395,12 +395,12 @@ Function LogManStart
 	        ForEach ($ets in $LogmanOn)
 	        {
 		    Push-Location $TraceDir
-		    cmd /c $ets
+		    cmd /c $ets |Out-Null
 		    Pop-Location
 	        }
     }
     else
-    { Write-Host "ETW Tracing skipped due to selected scenario" }
+    { Write-Host "ETW Tracing skipped due to selected scenario" -ForegroundColor DarkCyan }
 }
 
 Function EnableNetlogonDebug
@@ -409,18 +409,18 @@ Function EnableNetlogonDebug
     {
         $key = (get-item -PATH "HKLM:\SYSTEM\CurrentControlSet\Services\Netlogon")
         $subkey = $key.OpenSubKey("Parameters",$true)
-        Write-host "Enabling Netlogon Debug Logging"
+        Write-host "Enabling Netlogon Debug Logging" -ForegroundColor DarkCyan
 
         $subkey.SetValue($setDBFlag,$setvalue,$setvaltype)
 
-        Write-host "Increasing Netlogon Debug Size to 100 MB"
+        Write-host "Increasing Netlogon Debug Size to 100 MB" -ForegroundColor DarkCyan
         $subkey.SetValue($setNLMaxLogSize,$setvalue2,$setvaltype2)
 
         #cleanup and close the write  handle
         $key.Close()
     }
     else
-    { Write-Host "Netlogon Logging skipped due to scenario" }
+    { Write-Host "Netlogon Logging skipped due to scenario" -ForegroundColor DarkCyan }
 }
 
 
@@ -429,7 +429,7 @@ Function AllOtherLogs
 	ForEach ($o in $others)
 	{
 		Push-Location $TraceDir
-		cmd.exe /c $o
+		cmd.exe /c $o |Out-Null
 		Pop-Location
 	}
 }
@@ -441,12 +441,12 @@ Function LogManStop
         ForEach ($log in $LogmanOff)
         {
 	    	Push-Location $TraceDir
-	    	cmd.exe /c $log
+	    	cmd.exe /c $log |Out-Null
 	    	Pop-Location
         }
     }
     else
-    { Write-host "ETW Tracing was not enabled" }
+    { Write-host "ETW Tracing was not enabled" -ForegroundColor DarkCyan }
 }
 
 Function DisableNetlogonDebug
@@ -469,7 +469,7 @@ Function DisableNetlogonDebug
         $key.Close()
     }
     else
-    { Write-host "Net Logging logging was not enabled" }
+    { Write-host "Net Logging logging was not enabled" -ForegroundColor DarkCyan }
 }
 
 Function DisableDebugEvents ($events)
@@ -488,7 +488,7 @@ Function DisableDebugEvents ($events)
 
     }
     else
-    { Write-host "Debug Tracing Eventlogs where not enabled" }
+    { Write-host "Debug Tracing Eventlogs where not enabled" -ForegroundColor DarkCyan }
 }
 
 Function ExportEventLogs {
@@ -507,7 +507,7 @@ Param(
             {
             if($TraceEnabled)
                 {
-                "create export filter with :"+$RuntimeInMsec
+                #"create export filter with : "+$RuntimeInMsec
                 $expfilter= '<QueryList>' + '<Query Id="'+0+'" Path="'+$evts+'"><Select Path="'+$evts+'">'+"*[System[TimeCreated[timediff(@SystemTime) &lt;= $RuntimeInMsec]]]"+'</Select></Query></QueryList>'
                 }
             else #only export the last 60 minutes;
@@ -521,7 +521,7 @@ Param(
 		$evtx = [regex]::Replace($evts,"/","-")
 		$evttarget = $TraceDir +"\"+ $evtx+".evtx"
 		$EventSession = New-Object System.Diagnostics.Eventing.Reader.EventLogSession
-        "Exporting Eventlog : "+ $evts + " using filter :" + $expfilter
+        #"Exporting Eventlog : "+ $evts + " using filter :" + $expfilter
 		$EventSession.ExportLogAndMessages($evts,'Logname',$expfilter,$evttarget)
 		Pop-Location
     }
@@ -532,7 +532,7 @@ Function GatherTheRest
     ForEach ($logfile in $Filescollector)
     {
 		Push-Location $TraceDir
-		cmd.exe /c $logfile
+		cmd.exe /c $logfile | out-null
 		Pop-Location
     }
 }
@@ -544,56 +544,54 @@ Function EnablePerfCounter
         {
             if ($IsProxy)
             {
-            Write-host "Enabling PerfCounter"
+            Write-host "Enabling PerfCounter" -ForegroundColor DarkCyan
             Push-Location $TraceDir
-            cmd /c $CreatePerfCountProxy
-		    cmd /c $EnablePerfCountProxy
+            cmd /c $CreatePerfCountProxy |Out-Null
+		    cmd /c $EnablePerfCountProxy |Out-Null
 		    Pop-Location
 
             }
             else
             {
             Push-Location $TraceDir
-            Write-host "Configuring PerfCounter"
-            cmd /c $CreatePerfCountADFS
-		    cmd /c $EnablePerfCountADFS
+            Write-host "Configuring PerfCounter" -ForegroundColor DarkCyan
+            cmd /c $CreatePerfCountADFS |Out-Null
+		    cmd /c $EnablePerfCountADFS |Out-Null
             Pop-Location
             }
     }
     else
-    { Write-Host "Performance Monitoring will not be sampled due to selected scenario" }
+    { Write-Host "Performance Monitoring will not be sampled due to selected scenario" -ForegroundColor DarkCyan }
 }
 
 Function DisablePerfCounter
 {
     if ($TraceEnabled -and $PerfCounter)
-        { "Stoppen Performance Monitoring"
+        { Write-Host "Stopping Performance Monitoring" -ForegroundColor DarkCyan
             if ($IsProxy)
             {
-		    cmd /c $DisablePerfCountProxy
+		    cmd /c $DisablePerfCountProxy |Out-Null
             #we need to remove the counter created during enablement
-            cmd /c $RemovePerfCountProxy
+            cmd /c $RemovePerfCountProxy |Out-Null
             }
             else
             {
-		    cmd /c $DisablePerfCountADFS
+		    cmd /c $DisablePerfCountADFS |Out-Null
             #we need to remove the counter created during enablement
-            cmd /c $RemovePerfCountADFS
+            cmd /c $RemovePerfCountADFS |Out-Null
             }
     }
     else
-    {
-    Write-Host "Performance Monitoring was not sampled due to selected scenario"
-    }
+    { Write-Host "Performance Monitoring was not sampled due to selected scenario" -ForegroundColor DarkCyan }
 }
 
 Function EnableNetworkTrace
 {
     if ($TraceEnabled -and $NetTraceEnabled)
     {
-            Write-host "Starting Network Trace"
+            Write-host "Starting Network Trace" -ForegroundColor DarkCyan
             Push-Location $TraceDir
-		    cmd /c $EnableNetworkTracer
+		    cmd /c $EnableNetworkTracer |Out-Null
 		    Pop-Location
     }
 }
@@ -602,8 +600,8 @@ Function DisableNetworkTrace
 {
     if ($TraceEnabled -and $NetTraceEnabled)
     {
-        Write-host "Stopping Network Trace. It may take some time for the data to be flushed to disk. Please be patient"
-        cmd /c $DisableNetworkTracer
+        Write-host "Stopping Network Trace. It may take some time for the data to be flushed to disk. Please be patient`n" -ForegroundColor Yellow
+        cmd /c $DisableNetworkTracer |Out-Null
     }
 }
 
@@ -652,7 +650,7 @@ $gmsa = [Bool]($re.Entries.Attributes.objectclass.GetValues('string') -eq 'msDS-
     if(![string]::IsNullOrEmpty($EncType))
     {
     foreach ($etype in ($EncTypes.GetEnumerator() | Sort-Object -Property Value ))
-        { if (($EncType -band $etype.Value) -ne 0) { $KRBflags.Add($etype.Key.ToString()) } }
+        { if (($EncType -band $etype.Value) -ne 0) { $KRBflags.Add($etype.Key.ToString()) |out-null } }
     }
     else
         { $KRBflags.Add("`n`tmsds-supportedencryptiontypes is not configured on the service account, Service tickets would be RC4 only!`n`tFor AES Support configure the msds-supportedencryptiontypes on the ADFS Service Account with a value of either:`n`t24(decimal) == AES only `n`t or `n`t28(decimal) == AES & RC4") }
@@ -685,7 +683,7 @@ Function GetADFSConfig
 		    Get-WebApplicationProxyHealth | format-list * | Out-file "Get-WebApplicationProxyHealth.txt"
 		    Get-WebApplicationProxySslCertificate | format-list * | Out-file "Get-WebApplicationProxySslCertificate.txt"
 		    $proxcfg = 'copy %WINDIR%\ADFS\Config\Microsoft.IdentityServer.ProxyService.exe.config %COMPUTERNAME%-Microsoft.IdentityServer.ProxyService.exe.config'
-            cmd.exe /c $proxcfg
+            cmd.exe /c $proxcfg |Out-Null
 	    }
     }
     else # Is ADFS server
@@ -735,7 +733,7 @@ Function GetADFSConfig
 		Get-AdfsWebTheme | format-list * | Out-file "Get-AdfsWebTheme.txt"
 
 		$svccfg = 'copy %WINDIR%\ADFS\Microsoft.IdentityServer.ServiceHost.Exe.Config %COMPUTERNAME%-Microsoft.IdentityServer.ServiceHost.Exe.Config'
-        cmd.exe /c $svccfg
+        cmd.exe /c $svccfg |Out-Null
 
         if (Get-AdfsAzureMfaConfigured)
         { Export-AdfsAuthenticationProviderConfigurationData -name AzureMfaAuthentication -FilePath Get-ADFSAzureMfaAdapterconfig.txt }
@@ -761,7 +759,7 @@ Function GetADFSConfig
 		 Get-AdfsWebConfig | format-list * | Out-file "Get-AdfsWebConfig.txt"
 		 Get-AdfsWebTheme | format-list * | Out-file "Get-AdfsWebTheme.txt"
 		 $svccfg = 'copy %WINDIR%\ADFS\Microsoft.IdentityServer.ServiceHost.Exe.Config %COMPUTERNAME%-Microsoft.IdentityServer.ServiceHost.Exe.Config'
-         cmd.exe /c $svccfg
+         cmd.exe /c $svccfg |Out-Null
 	    }
 	    elseif ($WinVer -eq [Version]"6.2.9200")
 	    {
@@ -777,22 +775,22 @@ Function EndOfCollection
     $computername = (Get-Childitem env:computername).value
     $zip = $computername + "_ADFS_traces_"+$date
     $datafile = "$(Join-Path -Path $path -ChildPath $zip).zip"
-    Stop-Transcript
-    Write-host "Creating Archive File"
+    Stop-Transcript |Out-Null
+    Write-host "Creating Archive File" -ForegroundColor Green
     Add-Type -Assembly "System.IO.Compression.FileSystem" ;
     [System.IO.Compression.ZipFile]::CreateFromDirectory($TraceDir, $datafile)
 
-    Write-host "Archive File created in $datafile"
+    Write-host "Archive File created in $datafile" -ForegroundColor Green
 
     # Cleanup the Temporary Folder (if error retain the temp files)
     if(Test-Path -Path $Path)
     {
-		Write-host "Removing Temporary Files"
+		Write-host "Removing Temporary Files" -ForegroundColor Green
 		Remove-Item -Path $TraceDir -Force -Recurse | Out-Null
     }
     else
     {
-		Write-host "The Archive could not be created. Keeping Temporary Folder $TraceDir"
+		Write-host "The Archive could not be created. Keeping Temporary Folder $TraceDir" -ForegroundColor Yellow
 		New-Item -ItemType directory -Path $Path -Force | Out-Null
     }
 }
@@ -833,7 +831,7 @@ Function GetDRSConfig
 #region Execution
 
 if (IsAdminAccount){
-Write-host "Script is executed as Administrator. Resuming execution"
+Write-host "Script is executed as Administrator. Resuming execution" -ForegroundColor Green
 
 if ([string]::IsNullOrEmpty($Path))
 {
@@ -889,29 +887,29 @@ elseif (![string]::IsNullOrEmpty($Path))
 
 if(Test-Path -Path $Path)
 {
-   Write-host "Your folder: $Path already exists. Starting Data Collection..."
+   Write-host "Your folder: $Path already exists. Starting Data Collection..." -ForegroundColor DarkCyan
 }
 else
 {
-Write-host "Your Logfolder: $Path does not exist. Creating Folder"
+Write-host "Your Logfolder: $Path does not exist. Creating Folder" -ForegroundColor DarkCyan
 New-Item -ItemType directory -Path $Path -Force | Out-Null
 }
 
 $TraceDir = $Path +"\temporary"
 # Save execution output to file
-Write-host "Creating Temporary Folder in $path"
+Write-host "Creating Temporary Folder in $path" -ForegroundColor DarkCyan
 New-Item -ItemType directory -Path $TraceDir -Force | Out-Null
 
-Start-Transcript -Path "$TraceDir\transscript_output.txt" -Append -IncludeInvocationHeader
-Write-Host "Debug logs will be saved in: " $Path
-Write-Host "Options selected:  TracingEnabled:"$TraceEnabled "NetworkTrace:" $NetTraceEnabled " ConfigOnly:" $ConfigOnly " PerfCounter:" $PerfCounter
+Start-Transcript -Path "$TraceDir\transscript_output.txt" -Append -IncludeInvocationHeader |out-null
+Write-Host "Debug logs will be saved in: " $Path -ForegroundColor DarkCyan
+Write-Host "Options selected:  TracingEnabled:"$TraceEnabled "NetworkTrace:" $NetTraceEnabled " ConfigOnly:" $ConfigOnly " PerfCounter:" $PerfCounter -ForegroundColor DarkCyan
 Write-Progress -Activity "Preparation" -Status 'Setup Data Directory' -percentcomplete 5
 
 if ($TraceEnabled)
 {
-$MessageTitle = "Initialization completed"
-$MessageIse = "Data Collection is ready to start`nPrepare other computers to start collecting data.`n`nWhen ready, Click OK to start the collection..."
-$MessageC = "Data Collection is ready to start`n Prepare other computers to start collecting data.`nWhen ready, press any key to start the collection..."
+$MessageTitle = "Initialization completed`n"
+$MessageIse = "Data Collection is ready to start.`nPrepare other computers to start collecting data.`n`nWhen ready, Click OK to start the collection...`n"
+$MessageC = "`nData Collection is ready to start.`nPrepare other computers to start collecting data.`n`nWhen ready, press any key to start the collection...`n"
 Pause $MessageIse $MessageTitle $MessageC
 }
 
@@ -924,7 +922,7 @@ AllOtherLogs
 
 Write-Progress -Activity "Enable Logging" -Status 'Eventlogs' -percentcomplete 15
 $starttime = (get-date)
-Write-host "Configuring Event Logging"
+Write-host "Configuring Event Logging" -ForegroundColor DarkCyan
 if ($IsProxy) 	{ EnableDebugEvents $WAPDebugEvents  }
 else 			{ EnableDebugEvents $ADFSDebugEvents }
 
@@ -940,8 +938,8 @@ if($TraceEnabled)
 {
 Write-Progress -Activity "Ready for Repro" -Status 'Waiting for Repro' -percentcomplete 50
 $MessageTitle = "Data Collection Running"
-$MessageIse = "Data Collection is currently running`nProceed  reproducing the problem now or`n`nPress OK to stop the collection..."
-$MessageC = "Data Collection is currently running`nProceed  reproducing the problem now or `n`nPress any key to stop the collection..."
+$MessageIse = "Data Collection is currently running`nProceed  reproducing the problem now or`n`nPress OK to stop the collection...`n"
+$MessageC = "Data Collection is currently running`nProceed  reproducing the problem now or `n`nPress any key to stop the collection...`n"
 Pause $MessageIse $MessageTitle $MessageC
 }
 
@@ -965,13 +963,13 @@ if ($IsProxy) 	{ ExportEventLogs $WAPExportEvents $endtimeinmsec }
 else 			{ ExportEventLogs $ADFSExportEvents $endtimeinmsec }
 
 Write-Progress -Activity "Saving" -Status 'Compressing Files - This may take some moments to complete' -percentcomplete 95
-Write-host "Almost done. We are compressing all Files. Please wait"
+Write-host "Almost done. We are compressing all Files. Please wait" -ForegroundColor Green
 EndOfCollection
 
 }
 else
 {
-Write-Warning "You do not have Administrator rights!`nPlease re-run this script as an Administrator!"
+Write-Host "You do not have Administrator rights!`nPlease re-run this script as an Administrator!" -ForegroundColor Red
 Break
 }
 #endregion
