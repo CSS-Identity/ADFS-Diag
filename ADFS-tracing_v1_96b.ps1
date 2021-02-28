@@ -42,7 +42,6 @@ $EncTypes = @{
         "AES256-CTS-HMAC-SHA1-96" = 16
 }
 
-
 #Definition Netlogon Debug Logging
 $setDBFlag = 'DBFlag'
 $setvaltype = [Microsoft.Win32.RegistryValueKind]::String
@@ -58,39 +57,39 @@ $orgdbflag = (get-itemproperty -PATH "HKLM:\SYSTEM\CurrentControlSet\Services\Ne
 $orgNLMaxLogSize = (get-itemproperty -PATH "HKLM:\SYSTEM\CurrentControlSet\Services\Netlogon\Parameters").$setNLMaxLogSize
 
 #ETW Trace providers
-$LogmanOn = 'logman.exe create trace "schannel" -ow -o .\schannel.etl -p {37D2C3CD-C5D4-4587-8531-4696C44244C8} 0xffffffffffffffff 0xff -nb 16 16 -bs 1024 -mode Circular -f bincirc -max 2048 -ets',`
-'logman create trace "kerbntlm" -ow -o .\kerbntlm.etl -p {6B510852-3583-4E2D-AFFE-A67F9F223438} 0xffffffffffffffff 0xff -nb 16 16 -bs 1024 -mode Circular -f bincirc -max 2048 -ets',`
-'logman update trace "kerbntlm" -p {5BBB6C18-AA45-49B1-A15F-085F7ED0AA90} 0xffffffffffffffff 0xff -ets',`
-'logman create trace "dcloc" -ow -o .\dcloc.etl -p "Microsoft-Windows-DCLocator" 0xffffffffffffffff 0xff -nb 16 16 -bs 1024 -mode Circular -f bincirc -max 2048 -ets',`
+$LogmanOn = 'logman.exe create trace "schannel" -ow -o .\schannel.etl -p {37D2C3CD-C5D4-4587-8531-4696C44244C8} 0xffffffffffffffff 0xff -nb 16 16 -bs 1024 -mode Circular -f bincirc -max 1024 -ets',`
+'logman create trace "dcloc" -ow -o .\dcloc_krb_ntlmauth.etl -p "Microsoft-Windows-DCLocator" 0xffffffffffffffff 0xff -nb 16 16 -bs 1024 -mode Circular -f bincirc -max 1024 -ets',`
 'logman update trace "dcloc" -p {6B510852-3583-4E2D-AFFE-A67F9F223438} 0xffffffffffffffff 0xff -ets',`
-'logman update trace "dcloc" -p {5BBB6C18-AA45-49B1-A15F-085F7ED0AA90} 0xffffffffffffffff 0xff -ets'
+'logman update trace "dcloc" -p {5BBB6C18-AA45-49B1-A15F-085F7ED0AA90} 0xffffffffffffffff 0xff -ets',`
+'logman create trace "minio_http" -ow -o .\http_trace.etl -p "Microsoft-Windows-HttpService" 0xffffffffffffffff 0xff -nb 16 16 -bs 1024 -mode Circular -f bincirc -max 2048 -ets',`
+'logman update trace "minio_http" -p "Microsoft-Windows-HttpEvent" 0xffffffffffffffff 0xff -ets',`
+'logman update trace "minio_http" -p "Microsoft-Windows-Http-SQM-Provider" 0xffffffffffffffff 0xff -ets',`
+'logman update trace "minio_http" -p {B3A7698A-0C45-44DA-B73D-E181C9B5C8E6} 0xffffffffffffffff 0xff -ets'
 
-#NetworkCapture
-#changed report generation to NO. speeding up the data collection at the end
-$EnableNetworkTracer = 'netsh trace start scenario=internetServer capture=yes report=no overwrite=yes maxsize=800 tracefile=.\%COMPUTERNAME%-HTTP-network.etl provider="{DD5EF90A-6398-47A4-AD34-4DCECDEF795F}" keywords=0xffffffffffffffff level=0xff provider="Microsoft-Windows-HttpService" keywords=0xffffffffffffffff level=0xff provider="Microsoft-Windows-HttpEvent" keywords=0xffffffffffffffff level=0xff provider="Microsoft-Windows-Http-SQM-Provider" keywords=0xffffffffffffffff level=0xff provider="{B3A7698A-0C45-44DA-B73D-E181C9B5C8E6}" keywords=0xffffffffffffffff level=0xff'
+$LogmanOff = 'logman stop "schannel" -ets',`
+'logman stop "minio_http" -ets',`
+'logman stop "dcloc" -ets'
+
+#NetworkCapture+genericInternetTraffic
+$EnableNetworkTracer = 'netsh trace start scenario=internetServer capture=yes report=no overwrite=yes maxsize=500 tracefile=.\%COMPUTERNAME%-network.etl'
 $DisableNetworkTracer = 'netsh trace stop'
 
 #Performance Counter
-$CreatePerfCountProxy = 'Logman.exe create counter ADFSProxy -o ".\ADFSProxy-perf.blg" -f bincirc -max 1024 -v mmddhhmm -c "\AD FS Proxy\*" "\LogicalDisk(*)\*" "\Memory\*" "\PhysicalDisk(*)\*" "\Process(*)\*" "\Processor(*)\*" "\TCPv4\*" -si 0:00:05'
+$CreatePerfCountProxy = 'Logman.exe create counter ADFSProxy -o ".\ADFSProxy-perf.blg" -f bincirc -max 512 -v mmddhhmm -c "\AD FS Proxy\*" "\LogicalDisk(*)\*" "\Memory\*" "\PhysicalDisk(*)\*" "\Process(*)\*" "\Processor(*)\*" "\TCPv4\*" -si 0:00:05'
 $EnablePerfCountProxy = 'Logman.exe start ADFSProxy'
 
 $DisablePerfCountProxy = 'Logman.exe stop ADFSProxy'
 $RemovePerfCountProxy = 'Logman.exe delete ADFSProxy'
 
-$CreatePerfCountADFS = 'Logman.exe create counter ADFSBackEnd -o ".\%COMPUTERNAME%-ADFSBackEnd-perf.blg" -f bincirc -max 1024 -v mmddhhmm -c "\AD FS\*" "\LogicalDisk(*)\*" "\Memory\*" "\PhysicalDisk(*)\*" "\Process(*)\*" "\Processor(*)\*" "\Netlogon(*)\*" "\TCPv4\*" "Netlogon(*)\*" -si 00:00:05'
+$CreatePerfCountADFS = 'Logman.exe create counter ADFSBackEnd -o ".\%COMPUTERNAME%-ADFSBackEnd-perf.blg" -f bincirc -max 512 -v mmddhhmm -c "\AD FS\*" "\LogicalDisk(*)\*" "\Memory\*" "\PhysicalDisk(*)\*" "\Process(*)\*" "\Processor(*)\*" "\Netlogon(*)\*" "\TCPv4\*" "Netlogon(*)\*" -si 00:00:05'
 $EnablePerfCountADFS = 'Logman.exe start ADFSBackEnd'
 
 $DisablePerfCountADFS = 'Logman.exe stop ADFSBackEnd'
 $RemovePerfCountADFS = 'Logman.exe delete ADFSBackEnd'
 
-$LogmanOff = 'logman stop "schannel" -ets',`
-'logman stop "kerbntlm" -ets',`
-'logman stop "dcloc" -ets'
-
 $others = 'nltest /dsgetdc:%USERDNSDOMAIN% > %COMPUTERNAME%-nltest-dsgetdc-USERDNSDOMAIN-BEFORE.txt',`
 'certutil -verifystore AdfsTrustedDevices > %COMPUTERNAME%-certutil-verifystore-AdfsTrustedDevices-BEFORE.txt',`
-'certutil -v -store AdfsTrustedDevices > %COMPUTERNAME%-certutil-v-store-AdfsTrustedDevices-BEFORE.txt',`
-'ipconfig /flushdns > %COMPUTERNAME%-ipconfig-flushdns-BEFORE.txt'
+'ipconfig /flushdns'
 
 #Collection for Additional Files
 $Filescollector = 'copy /y %windir%\debug\netlogon.*  ',`
@@ -101,9 +100,8 @@ $Filescollector = 'copy /y %windir%\debug\netlogon.*  ',`
 'set > %COMPUTERNAME%-environment-variables-AFTER.txt',`
 'route print > %COMPUTERNAME%-route-print-AFTER.txt',`
 'netsh advfirewall show global > %COMPUTERNAME%-netsh-int-advf-show-global.txt',`
-'net start > %COMPUTERNAME%-services-running-AFTER.txt',`
-'sc query  > %COMPUTERNAME%-services-config-AFTER.txt',`
-'tasklist > %COMPUTERNAME%-tasklist-AFTER.txt',`
+'powershell -command "& {get-service |ft DisplayName,Status,StartType -autosize | out-file %COMPUTERNAME%-services-running-AFTER.txt}"',`
+'powershell -command "& {get-process |Sort-Object Id |ft Name,Id, SessionId,WorkingSet -AutoSize |out-file %COMPUTERNAME%-tasklist-AFTER.txt}"',`
 'if defined USERDNSDOMAIN (nslookup %USERDNSDOMAIN% > %COMPUTERNAME%-nslookup-USERDNSDOMAIN-AFTER.txt)',`
 'nltest /dsgetdc:%USERDNSDOMAIN% > %COMPUTERNAME%-nltest-dsgetdc-USERDNSDOMAIN-AFTER.txt',`
 'certutil -verifystore my > %COMPUTERNAME%-certutil-verifystore-my.txt',`
@@ -113,7 +111,6 @@ $Filescollector = 'copy /y %windir%\debug\netlogon.*  ',`
 'certutil -v -store my > %COMPUTERNAME%-certutil-v-store-my.txt',`
 'certutil -v -store ca > %COMPUTERNAME%-certutil-v-store-ca.txt',`
 'certutil -v -store root > %COMPUTERNAME%-certutil-v-store-root.txt',`
-'certutil -v -store AdfsTrustedDevices > %COMPUTERNAME%-certutil-v-store-AdfsTrustedDevices-AFTER.txt',`
 'certutil –urlcache > %COMPUTERNAME%-cerutil-urlcache.txt',`
 'certutil –v –store –enterprise ntauth > %COMPUTERNAME%-cerutil-v-store-enterprise-ntauth.txt',`
 'netsh int ipv4 show dynamicport tcp > %COMPUTERNAME%-netsh-int-ipv4-show-dynamicport-tcp.txt',`
@@ -161,19 +158,14 @@ $Description                     = New-Object system.Windows.Forms.RichTextBox
 $Description.multiline           = $true
 $Description.text                = "Before running this script consider running the ADFS Diagnostic Analyzer to detect possible existing configuration problems
 You can obtain the ADFS Diagnostic Analyzer from the following webpage: https://adfshelp.microsoft.com/DiagnosticsAnalyzer/Analyze
-
 This ADFS Tracing script is intended to collect various details about the ADFS configuration and related Windows Settings.
-
 It also provides the capability to collect various debug logs at runtime for issues that needs to be actively reproduced or are otherwise not detectable
 via the ADFS Diagnostic Analyzer and the resulting data can be provided to a Microsoft support technician for analysis.
-
 When running a Debug/Runtime Trace you can choose to add Network Traces and/or Performance Counter to the collection if it is required to troubleshoot
 a particular issue.
-
 The script will prepare itself to start capturing data and will prompt the Administrator once the data collection script is ready.
 When you have the script in this prompt on all the servers, just hit any key to start collecting data in all of them.
 It will then display another message to inform you that it's collecting data and will wait for another key to be pressed to stop the capture.
-
 Note: The script will capture multiple traces in circular buffers. It will use a temporary folder under the path you provide (Example: C:\tracing\temporary).
 The temporary folder will be compressed and .zip file left in the path file you selected.
 In worst case it will require 10-12 GB depending on the workload and the time we keep it running, but usually it's below 4GB.
@@ -609,7 +601,7 @@ function getServiceAccountDetails
 {
 if (!$IsProxy)
 {
-$SVCACC = ((get-wmiobject win32_service -Filter "Name='adfssrv'").startname) #currently fails if a upn is used//mostly if logonname of service got set manually
+$SVCACC = ((get-wmiobject win32_service -Filter "Name='adfssrv'").startname)
 if ($SVCACC.contains('@'))
 {
     $filter ="(userprincipalname="+$SVCACC.Split('@')[0]+")"
@@ -736,7 +728,9 @@ Function GetADFSConfig
         cmd.exe /c $svccfg |Out-Null
 
         if (Get-AdfsAzureMfaConfigured)
-        { Export-AdfsAuthenticationProviderConfigurationData -name AzureMfaAuthentication -FilePath Get-ADFSAzureMfaAdapterconfig.txt }
+        { Export-AdfsAuthenticationProviderConfigurationData -name AzureMfaAuthentication -FilePath Get-ADFSAzureMfaAdapterconfig.txt
+           #need to add Reg Evaluation for SasUrl/StsUrl /ResourceUri in HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\ADFS to identify if AzureGov is configured
+        }
         ##comming soon: WHFB Cert Trust Informations
         if ($WinVer -ge [Version]"10.0.17763") #ADFS command specific to ADFS 2019+
         {
@@ -953,7 +947,7 @@ Write-Progress -Activity "Collecting" -Status 'Stop additional logs' -percentcom
     DisablePerfCounter
     DisableNetlogonDebug
 
-Write-Progress -Activity "Collecting" -Status 'Getting ' -percentcomplete 70
+Write-Progress -Activity "Collecting" -Status 'Getting otherlogs' -percentcomplete 70
 GatherTheRest
 
 Write-Progress -Activity "Collecting" -Status 'Exporting Eventlogs' -percentcomplete 85
