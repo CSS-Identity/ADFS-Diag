@@ -2,7 +2,7 @@
 # ADFS troubleshooting - Data Collection
 # Supported versions: Windows Server 2012, Windows Server 2012 R2, Windows Server 2016 and Server 2019
 # Supported role: ADFS server, ADFS proxy server (2012) and Web Application Proxy (2012 R2 and 2016 and 2019)
-# Version:1.96b
+# Version:Rel2021_02
 ############################################################################################################
 
 param (
