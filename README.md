@@ -60,14 +60,14 @@ It will Pause the execution to give you the time to configure the other servers,
 
 Once all servers are prepared for tracing you can resume tracing on each of the servers by following the onscreen instructions by pressing a key or  when using Powershell ISE a Dialog popup should occur. Click OK here.
 
-The script will then display another message to inform you that the data collection/tracing is running.\s\s
-At this time perform the steps to REPRODUCE THE ISSUE you want to capture.\s\s
+The script will then display another message to inform you that the data collection/tracing is running.  
+At this time perform the steps to REPRODUCE THE ISSUE you want to capture.  
 //Try to reproduce the issue as fast you can to keep the size of the data as small as possible
 
 Once the problem has been reproduced once again press a key or click OK in the Dialog to to stop the tracing.
 
-At this point it will take some time collect the remaining data and to compile the debug traces (if Tracing was enabled).\s\s 
-So **please be patient** and do not abort the script through Task Manager\s\s
+At this point it will take some time collect the remaining data and to compile the debug traces (if Tracing was enabled).  
+So **please be patient** and do not abort the script through Task Manager  
 You may also see some additional popup windows appearing. Usually they occur for the MSINFO Collection
 
 
