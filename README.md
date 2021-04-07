@@ -62,15 +62,16 @@ Once all servers are prepared for tracing you can resume tracing on each of the 
 
 The script will then display another message to inform you that the data collection/tracing is running.
 At this time perform the steps to REPRODUCE THE ISSUE you want to capture. 
+
 //Try to reproduce the issue as fast you can to keep the size of the data as small as possible
 
 Once the problem has been reproduced once again press a key or click OK in the Dialog to to stop the tracing.
 
 At this point it will take some time collect the remaining data and to compile the debug traces (if Tracing was enabled). 
-
 So **please be patient** and do not abort the script through Task Manager 
 
 You may also see some additional popup windows appearing. Usually they occur for the MSINFO Collection
+
 
 When the scripts finish, please upload the folder to the workspace provided by the support engineer
 
