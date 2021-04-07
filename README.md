@@ -37,7 +37,7 @@ You can run the script from Powershell ISE or from Powershell Console
 When executing the Script without any parameters the script will Render a Forms UI and providing you with the following Options:
 
 | Options | Description 
-| :--------: | :---------: |
+| :--------: | :--------- |
 | Configuration Only | In this mode only static data will be exported. This is the default scenario even if not enabled|
 | Runtime Tracing  | In this mode the script will collect all data available in Configuration Only and enables additional debug traces for http.sys, schannel, kerberos/ntlm and ADFS and DRS Debug Event Tracing |
 | include Network Traces  | This option is only available for a runtime trace and you can opt-in if you want to collect a network trace |
@@ -48,7 +48,7 @@ When executing the Script without any parameters the script will Render a Forms 
 ##### Running the script from console:
 The script accepts four parameters similar to the UI 
 | Options | Value/Description 
-| :-------- | :---------: |
+| :-------- | :--------- |
 | -Path | The absolute path to the folder where the files should be stored. If the parameter is omitted the script will automatically run in interactive mode ignoring the other parameters |
 | -TraceEnabled | $true/$false; if omitted the script will prompt you if a network trace should be captured |
 | -NetTraceEnabled | $true/$false; if omitted the script will prompt you if a network trace should be captured |
