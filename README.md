@@ -11,7 +11,7 @@ Once the tracing has completed, the script will automatically generate a archive
 This Script does not require an Internet Connection and will at no point automatically send any data to Microsoft.
 It primarily only leverages built-in functions and tools included in Windows Server.
 
-Any data collected by this script **must only** be sent to Microsoft as part of an active Support Engagement.
+Any data collected by this script **must only** be sent to Microsoft as part of an active Support Engagement.  
 Any data you want to send to Microsoft **must only** be transfered through a Secure File Transfer.
 
 Access to such transfer tools should be provided by the Microsoft support professional assigned to your support incident.
