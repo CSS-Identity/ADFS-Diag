@@ -20,11 +20,11 @@ Once the tracing has completed, the script will automatically generate a archive
 ### Script usage
 ---
 ##### Requirements:
-- the Script supports ADFS on Windows Server 2012R2 / Windows Server 2016 / Windows Server 2019
+- the Script supports ADFS on Windows Server 2012/ 2012R2 / Windows Server 2016 / Windows Server 2019
 - local administrator privileges are required to run the scripts at minimum. 
 - Preferably the account is also a Domain User
 - a miminum of 5GB of free diskspace on the volume for the target folder when running the tracing for a longer period
-- on Windows Server 2012R2 it is recommended (but not required) to have the Windows Management Framework 5.1 (WMF) installed
+- on Windows Server 2012 / 2012R2 it is recommended (but not required) to have the Windows Management Framework 5.1 (WMF) installed
   Some functions used by the script may otherwise generate some errors (These errors do not affect the overall data collection) 
   You can get the WMF from https://www.microsoft.com/en-us/download/details.aspx?id=54616
 
