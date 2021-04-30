@@ -2,7 +2,6 @@
 # ADFS troubleshooting - Data Collection
 # Supported versions: Windows Server 2012, Windows Server 2012 R2, Windows Server 2016 and Server 2019
 # Supported role: ADFS server, ADFS proxy server (2012) and Web Application Proxy (2012 R2 and 2016 and 2019)
-# Version:1.96b
 ############################################################################################################
 
 param (
@@ -33,13 +32,14 @@ $ADFSExportEvents = 'System','Application','Security','AD FS Tracing/Debug','AD 
 $WAPExportEvents  = 'System','Application','Security','AD FS Tracing/Debug','AD FS/Admin','Microsoft-Windows-CAPI2/Operational','Microsoft-Windows-WebApplicationProxy/Admin','Microsoft-Windows-WebApplicationProxy/Session'
 $DbgLvl = 5
 
-#Kerberos EncryptionTypes Bitmask for common
-$EncTypes = @{
-        "DES-CBC-CRC"             = 1
-        "DES-CBC-MD5"             = 2
-        "RC4-HMAC"                = 4
-        "AES128-CTS-HMAC-SHA1-96" = 8
-        "AES256-CTS-HMAC-SHA1-96" = 16
+#Kerberos EncryptionTypes Bitmask for common ETypes.Requirement is Powershell 5.x for enums
+[flags()] Enum EncTypes
+{
+        DES_CBC_CRC             = 0x01
+        DES_CBC_MD5             = 0x02
+        RC4_HMAC                = 0x04
+        AES128_CTS_HMAC_SHA1_96 = 0x08
+        AES256_CTS_HMAC_SHA1_96 = 0x10
 }
 
 #Definition Netlogon Debug Logging
@@ -111,8 +111,8 @@ $Filescollector = 'copy /y %windir%\debug\netlogon.*  ',`
 'certutil -v -store my > %COMPUTERNAME%-certutil-v-store-my.txt',`
 'certutil -v -store ca > %COMPUTERNAME%-certutil-v-store-ca.txt',`
 'certutil -v -store root > %COMPUTERNAME%-certutil-v-store-root.txt',`
-'certutil –urlcache > %COMPUTERNAME%-cerutil-urlcache.txt',`
-'certutil –v –store –enterprise ntauth > %COMPUTERNAME%-cerutil-v-store-enterprise-ntauth.txt',`
+'certutil –urlcache > %COMPUTERNAME%-certutil-urlcache.txt',`
+'certutil –v –store –enterprise ntauth > %COMPUTERNAME%-certutil-v-store-enterprise-ntauth.txt',`
 'netsh int ipv4 show dynamicport tcp > %COMPUTERNAME%-netsh-int-ipv4-show-dynamicport-tcp.txt',`
 'netsh int ipv4 show dynamicport udp > %COMPUTERNAME%-netsh-int-ipv4-show-dynamicport-udp.txt',`
 'netsh int ipv6 show dynamicport tcp > %COMPUTERNAME%-netsh-int-ipv6-show-dynamicport-tcp.txt',`
@@ -344,10 +344,11 @@ $c.SessionOptions.SecureSocketLayer = $false;
 $c.SessionOptions.Sealing = $true
 $c.AuthType = [System.DirectoryServices.Protocols.AuthType]::Kerberos
 $c.Bind();
-$basedn = (New-Object System.DirectoryServices.DirectoryEntry("LDAP://$conn/RootDSE")).DefaultNamingContext
+$c.Timeout=[timespan]::FromSeconds(45)
+if([string]::IsNullOrEmpty($basedn)){ $basedn = (New-Object System.DirectoryServices.DirectoryEntry("LDAP://$conn/RootDSE")).DefaultNamingContext}
 $scope = [System.DirectoryServices.Protocols.SearchScope]::Subtree
 $r = New-Object System.DirectoryServices.Protocols.SearchRequest -ArgumentList $basedn,$filter,$scope,$att
-$re = $c.SendRequest($r)
+$re = try { $c.SendRequest($r)}catch{$_.Exception.InnerException }
 $c.Dispose()
 return $re
 }
@@ -414,7 +415,6 @@ Function EnableNetlogonDebug
     else
     { Write-Host "Netlogon Logging skipped due to scenario" -ForegroundColor DarkCyan }
 }
-
 
 Function AllOtherLogs
 {
@@ -529,7 +529,6 @@ Function GatherTheRest
     }
 }
 
-
 Function EnablePerfCounter
 {
     if ($TraceEnabled -and $PerfCounter)
@@ -601,17 +600,17 @@ function getServiceAccountDetails
 {
 if (!$IsProxy)
 {
-$SVCACC = ((get-wmiobject win32_service -Filter "Name='adfssrv'").startname)
-if ($SVCACC.contains('@'))
-{
-    $filter ="(userprincipalname="+$SVCACC.Split('@')[0]+")"
-    $domain = $SVCACC.Split('@')[1]
-}
-if ($SVCACC.contains('\'))
-{
-    $filter ="(samaccountname="+$SVCACC.Split('\')[1]+")"
-    $domain = $SVCACC.Split('\')[0]
-}
+    $SVCACC = ((get-wmiobject win32_service -Filter "Name='adfssrv'").startname)
+    if ($SVCACC.contains('@'))
+    {
+        $filter ="(userprincipalname="+$SVCACC.Split('@')[0]+")"
+        $domain = $SVCACC.Split('@')[1]
+    }
+    if ($SVCACC.contains('\'))
+    {
+        $filter ="(samaccountname="+$SVCACC.Split('\')[1]+")"
+        $domain = $SVCACC.Split('\')[0]
+    }
 
 $conn= (New-Object System.DirectoryServices.DirectoryEntry("LDAP://$domain/RootDSE")).dnshostname
 [string]$att = "*"
@@ -620,14 +619,17 @@ $conn= (New-Object System.DirectoryServices.DirectoryEntry("LDAP://$domain/RootD
 
 $re= LDAPQuery -filter $filter -att $att -conn $conn
 $gmsa =$false
-$gmsa = [Bool]($re.Entries.Attributes.objectclass.GetValues('string') -eq 'msDS-GroupManagedServiceAccount')
-"Service Account is GMSA: " + $gmsa | out-file Get-ServicePrincipalNames.txt -Append
+
+if($re.GetType().Name -eq 'SearchResponse')
+{
+        $gmsa = [Bool]($re.Entries.Attributes.objectclass.GetValues('string') -eq 'msDS-GroupManagedServiceAccount')
+        "Service Account is GMSA: " + $gmsa | out-file Get-ServicePrincipalNames.txt -Append
 
     if($gmsa -eq $true)
     {
-    $adl = new-object System.DirectoryServices.ActiveDirectorySecurity
-    $adl.SetSecurityDescriptorBinaryForm($re.Entries[0].Attributes.'msds-groupmsamembership'[0])
-    "`nGMSA allowed Hosts: `n" + $adl.AccessToString |ft |out-file Get-ServicePrincipalNames.txt -Append
+        $adl = new-object System.DirectoryServices.ActiveDirectorySecurity
+        $adl.SetSecurityDescriptorBinaryForm($re.Entries[0].Attributes.'msds-groupmsamembership'[0])
+        "`nGMSA allowed Hosts: `n" + $adl.AccessToString |ft |out-file Get-ServicePrincipalNames.txt -Append
     }
     else {"`nService Account used is a generic User"| out-file Get-ServicePrincipalNames.txt -Append}
 
@@ -638,23 +640,30 @@ $gmsa = [Bool]($re.Entries.Attributes.objectclass.GetValues('string') -eq 'msDS-
     Try { $EncType= [int]::Parse($re.Entries[0].Attributes.'msds-supportedencryptiontypes'.GetValues('string')) }
     Catch { "We handled an exception when reading msds-supportedencryptiontypes, which implies the attribute is not configured. This is not a critical error"; }
 
-    $KRBflags = [System.Collections.ArrayList]::new()
+    $KRBflags=$null
     if(![string]::IsNullOrEmpty($EncType))
     {
-    foreach ($etype in ($EncTypes.GetEnumerator() | Sort-Object -Property Value ))
-        { if (($EncType -band $etype.Value) -ne 0) { $KRBflags.Add($etype.Key.ToString()) |out-null } }
+        $KRBflags = [regex]::replace(([EncTypes]$EncType), ", "," | ")
     }
-    else
-        { $KRBflags.Add("`n`tmsds-supportedencryptiontypes is not configured on the service account, Service tickets would be RC4 only!`n`tFor AES Support configure the msds-supportedencryptiontypes on the ADFS Service Account with a value of either:`n`t24(decimal) == AES only `n`t or `n`t28(decimal) == AES & RC4") }
+    else { $KRBflags ="`n`tmsds-supportedencryptiontypes is not configured on the service account, Service tickets would be RC4 only!`n`tFor AES Support configure the msds-supportedencryptiontypes on the ADFS Service Account with a value of either:`n`t24(decimal) == AES only `n`t or `n`t28(decimal) == AES & RC4" }
 
-    "`nKerberos Encryption Types supported by Service Account: " + ($KRBflags -join ' | ') |Out-File Get-ServicePrincipalNames.txt -Append
-    "`nChecking for Duplicate SPNs( current ServiceAccount will be included in this check):`n" |out-file Get-ServicePrincipalNames.txt -Append
+    "`nKerberos Encryption Types supported by Service Account: " + $KRBflags |Out-File Get-ServicePrincipalNames.txt -Append
+}
+else
+    {"Service Account query failed with error: "+$re.Message |Out-File Get-ServicePrincipalNames.txt -Append}
+
+"`nChecking for Duplicate SPNs( current ServiceAccount will be included in this check):`n" |out-file Get-ServicePrincipalNames.txt -Append
 
     $conn= (New-Object System.DirectoryServices.DirectoryEntry("GC://$domain/RootDSE")).dnshostname
     $filter= "(serviceprincipalname="+('*/'+(get-adfsproperties).hostname)+")"
     [string]$att = "*"
     $re= LDAPQuery -filter $filter -att $att -conn $conn
-    $re.Entries |foreach {$_.distinguishedName |out-file Get-ServicePrincipalNames.txt -Append ;$_.Attributes.'serviceprincipalname'.GetValues('string')|out-file Get-ServicePrincipalNames.txt -Append}
+if($re.GetType().Name -eq 'SearchResponse')
+{
+    $re.Entries |foreach {$_.distinguishedName |out-file Get-ServicePrincipalNames.txt -Append ; $_.Attributes.'serviceprincipalname'.GetValues('string')|out-file Get-ServicePrincipalNames.txt -Append }
+}
+else
+    {"Duplicate SPN Query failed with error: "+$re.Message |Out-File Get-ServicePrincipalNames.txt -Append}
 }
 }
 
@@ -727,9 +736,38 @@ Function GetADFSConfig
 		$svccfg = 'copy %WINDIR%\ADFS\Microsoft.IdentityServer.ServiceHost.Exe.Config %COMPUTERNAME%-Microsoft.IdentityServer.ServiceHost.Exe.Config'
         cmd.exe /c $svccfg |Out-Null
 
-        if (Get-AdfsAzureMfaConfigured)
+        if (Get-AdfsAzureMfaConfigured) #needs further enhancement for secondary ADFS
         { Export-AdfsAuthenticationProviderConfigurationData -name AzureMfaAuthentication -FilePath Get-ADFSAzureMfaAdapterconfig.txt
-           #need to add Reg Evaluation for SasUrl/StsUrl /ResourceUri in HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\ADFS to identify if AzureGov is configured
+
+            $tenantId = Select-xml -Path ".\Get-ADFSAzureMfaAdapterconfig.txt" -Xpath "//TenantId" |foreach {$_.node.InnerXML}
+            if(![string]::IsNullOrEmpty((get-childitem Cert:\LocalMachine\my | where-object {$_.Subject -contains "CN="+"$tenantId"+", OU=Microsoft AD FS Azure MFA"})))
+            { "`n`nA suitable Azure MFA Certificate was found in the store" |out-file Get-ADFSAzureMfaAdapterconfig.txt -Append utf8 }
+            else
+            { "`n`nCouldnt find an Azure MFA Certificate matching the TenantID in the adapters configuration.`n" |out-file Get-ADFSAzureMfaAdapterconfig.txt -Append utf8
+             $mfacert= get-childitem Cert:\LocalMachine\my | where-object {$_.Subject -match 'OU=Microsoft AD FS Azure MFA'}
+             if($mfacert.count -eq '0')
+             {"`nThere are currently no Azure MFA Certificates existing in the local machines store." |out-file Get-ADFSAzureMfaAdapterconfig.txt -Append utf8 }
+             else
+             {
+             $mfacert |out-file Get-ADFSAzureMfaAdapterconfig.txt -Append utf8
+             }
+            }
+             $adfsreg= Get-Item -LiteralPath "HKLM:\SOFTWARE\Microsoft\ADFS"
+             $MFAREG = 'StsUrl','SasUrl','ResourceUri'
+             $obj = @{}
+            if ($adfsreg.Property -notcontains 'SasUrl' -and $adfsreg.Property -notcontains 'StsUrl' -and $adfsreg.Property -notcontains 'ResourceUri')
+               { "`n`nAzure MFA has not been configured for Azure Government."|out-file Get-ADFSAzureMfaAdapterconfig.txt -Append utf8 }
+            else
+               { "`n`nRegistry Entries for Azure Government have been found. Please review the registy:`n"|out-file Get-ADFSAzureMfaAdapterconfig.txt -Append utf8
+               foreach ($_ in $MFAREG)
+                   {
+                   if($adfsreg.Property -contains $_)
+                     { $obj.add($_, $adfsreg.GetValue($_)) }
+                   else
+                     { $obj.add($_,'Key does not exist') }
+                   }
+               $obj.GetEnumerator() |Select-Object @{Label='RegKeyName';Expression={$_.Key}},@{Label='RegKeyValue';Expression={$_.Value}} |out-file Get-ADFSAzureMfaAdapterconfig.txt -Append utf8
+               }
         }
         ##comming soon: WHFB Cert Trust Informations
         if ($WinVer -ge [Version]"10.0.17763") #ADFS command specific to ADFS 2019+
@@ -796,27 +834,26 @@ Function GetDRSConfig
 	{
 		Push-Location $TraceDir
 		Get-AdfsDeviceRegistrationUpnSuffix | format-list * | Out-file "Get-AdfsDeviceRegistrationUpnSuffix.txt"
-		Try { Get-AdfsDeviceRegistration | format-list * | Out-file "Get-AdfsDeviceRegistration.txt" }  Catch { $_.Exception.Message | Out-file "Get-AdfsDeviceRegistration.txt" }
-		Try
-		{
-			$rootdse = New-Object System.DirectoryServices.DirectoryEntry("LDAP://RootDSE")
-			$dirEntry = "LDAP://" +$rootdse.dnshostname+"/CN=DeviceRegistrationService,CN=Device Registration Services,CN=Device Registration Configuration,CN=Services," +$rootdse.configurationNamingContext
-			$searcher = new-object System.DirectoryServices.DirectorySearcher
-			$searcher.SearchRoot = $dirEntry
-			$searcher.SearchScope = "Subtree"
-			$DScloudissuerpubliccert = new-object System.Security.Cryptography.X509Certificates.X509Certificate2
-			$DScloudissuerpubliccert.Import(($searcher.FindAll()).GetDirectoryEntry().Properties.'msds-cloudissuerpubliccertificates'.Value)
-			$DSissuerpubliccert = new-object System.Security.Cryptography.X509Certificates.X509Certificate2
-			$DSissuerpubliccert.Import(($searcher.FindAll()).GetDirectoryEntry().Properties.'msDS-IssuerPublicCertificates'.Value)
-			"==========================CloudDRSIssuerCertificatePublicKey======================================" | Out-File Get-AdfsDeviceRegistration.txt -Append
-			$DScloudissuerpubliccert |fl * | Out-File Get-AdfsDeviceRegistration.txt -Append
-			"=============================DRSIssuerCertificatePublicKey========================================" | Out-File Get-AdfsDeviceRegistration.txt -Append
-			$DSissuerpubliccert |fl * | Out-File Get-AdfsDeviceRegistration.txt -Append
-		}
-		catch
-		{
-			"The function DRSConfig ran into the following Error when querying the AD DRS Object: " + ($_) | Out-File DiagnosticsDebug.txt -Append
-		}
+		Try { $drs= Get-AdfsDeviceRegistration; $drs| Out-file "Get-AdfsDeviceRegistration.txt" }  Catch { $_.Exception.Message | Out-file "Get-AdfsDeviceRegistration.txt" }
+
+            $dse = (New-Object System.DirectoryServices.DirectoryEntry("LDAP://"+(Get-WmiObject -Class Win32_ComputerSystem).Domain+"/RootDSE"))
+            $conn= $dse.dnsHostName
+            $basednq = "CN=DeviceRegistrationService,CN=Device Registration Services,CN=Device Registration Configuration,CN=Services," +$dse.configurationNamingContext
+            $filter= "(objectClass=*)"
+            $re= LDAPQuery -filter $filter -att $att -conn $conn -basedn $basednq
+            if($re.GetType().Name -eq 'SearchResponse')
+            {
+             $DScloudissuerpubliccert = new-object System.Security.Cryptography.X509Certificates.X509Certificate2
+              $DSissuerpubliccert = new-object System.Security.Cryptography.X509Certificates.X509Certificate2
+              try{$DScloudissuerpubliccert.Import($re.Entries.Attributes.'msds-cloudissuerpubliccertificates'.GetValues('byte[]')[0])}catch{}
+              try{$DSissuerpubliccert.Import($re.Entries.Attributes.'msds-issuerpubliccertificates'.GetValues('byte[]')[0]) }catch{}
+
+              "DRS Cloud Issuer Certificate`nThumbprint:"+ $DScloudissuerpubliccert.Thumbprint + "`nIssuer:" +$DScloudissuerpubliccert.Issuer |Out-File Get-AdfsDeviceRegistration.txt -Append
+              "`nDRS Onprem Issuer Certificate`nThumbprint:"+ $DSissuerpubliccert.Thumbprint + "`nIssuer:" +$DSissuerpubliccert.Issuer |Out-File Get-AdfsDeviceRegistration.txt -Append
+		    }
+            else
+            {"DRS Service Object search failed: "+$re.Message |Out-File Get-AdfsDeviceRegistration.txt -Append}
+
 		pop-location
 	}
 }
