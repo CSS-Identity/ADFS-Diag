@@ -743,10 +743,10 @@ Function GetADFSConfig
             if(![string]::IsNullOrEmpty((get-childitem Cert:\LocalMachine\my | where-object {$_.Subject -contains "CN="+"$tenantId"+", OU=Microsoft AD FS Azure MFA"})))
             { "`n`nA suitable Azure MFA Certificate was found in the store" |out-file Get-ADFSAzureMfaAdapterconfig.txt -Append utf8 }
             else
-            { "`n`nCouldnt find an Azure MFA Certificate matching the TenantID in the adapters configuration.`n" |out-file Get-ADFSAzureMfaAdapterconfig.txt -Append utf8
+            { "`n`nWarning: Couldnt find an Azure MFA Certificate matching the TenantID in the adapters configuration." |out-file Get-ADFSAzureMfaAdapterconfig.txt -Append utf8
              $mfacert= get-childitem Cert:\LocalMachine\my | where-object {$_.Subject -match 'OU=Microsoft AD FS Azure MFA'}
              if($mfacert.count -eq '0')
-             {"`nThere are currently no Azure MFA Certificates existing in the local machines store." |out-file Get-ADFSAzureMfaAdapterconfig.txt -Append utf8 }
+             {"Warning: Azure MFA is configured but there are no Azure MFA Certificates existing in the local machines store." |out-file Get-ADFSAzureMfaAdapterconfig.txt -Append utf8 }
              else
              {
              $mfacert |out-file Get-ADFSAzureMfaAdapterconfig.txt -Append utf8
