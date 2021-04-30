@@ -137,7 +137,6 @@ $Filescollector = 'copy /y %windir%\debug\netlogon.*  ',`
 'regedit /e %COMPUTERNAME%-reg-schannel_NET_WOW_strong_crypto.txt HKEY_LOCAL_MACHINE\SOFTWARE\WOW6432Node\Microsoft\.NETFramework',`
 'regedit /e %COMPUTERNAME%-reg-ciphers_policy_registry.txt HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Cryptography\Configuration\SSL'
 
-
 #endregion
 ##########################################################################
 #region UI
@@ -477,7 +476,6 @@ Function DisableDebugEvents ($events)
 			    $TraceLog.SaveChanges()
             }
         }
-
     }
     else
     { Write-host "Debug Tracing Eventlogs where not enabled" -ForegroundColor DarkCyan }
@@ -887,9 +885,7 @@ elseif (![string]::IsNullOrEmpty($Path))
                  }
     }
     else
-    {
-        $ConfigOnly=$false
-    }
+    { $ConfigOnly=$false }
 
     If (($TraceEnabled -and ($NetTraceEnabled -eq $false))  )
     {
@@ -903,7 +899,6 @@ elseif (![string]::IsNullOrEmpty($Path))
     }
 
     if (($TraceEnabled -and ($PerfCounter -eq $false)))
-
     {
             $PMode = Read-Host 'Collect Performance Counters (Y/N). You you do not provide a value network tracing is enabled by default'
             Switch ($PMode)
@@ -913,13 +908,10 @@ elseif (![string]::IsNullOrEmpty($Path))
                    Default {Write-Host "You provided an incorrect or no value. Skipping Performance Counters"; $PerfCounter=$false; $ConfigOnly=$false}
               }
     }
-
 }
 
 if(Test-Path -Path $Path)
-{
-   Write-host "Your folder: $Path already exists. Starting Data Collection..." -ForegroundColor DarkCyan
-}
+{ Write-host "Your folder: $Path already exists. Starting Data Collection..." -ForegroundColor DarkCyan }
 else
 {
 Write-host "Your Logfolder: $Path does not exist. Creating Folder" -ForegroundColor DarkCyan
