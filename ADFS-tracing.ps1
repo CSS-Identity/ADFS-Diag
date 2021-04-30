@@ -756,7 +756,7 @@ Function GetADFSConfig
              $MFAREG = 'StsUrl','SasUrl','ResourceUri'
              $obj = @{}
             if ($adfsreg.Property -notcontains 'SasUrl' -and $adfsreg.Property -notcontains 'StsUrl' -and $adfsreg.Property -notcontains 'ResourceUri')
-               { "`n`nAzure MFA has not been configured for Azure Government."|out-file Get-ADFSAzureMfaAdapterconfig.txt -Append utf8 }
+               { "`n`nAzure MFA has not been configured for Azure Government and will use the default Public environment."|out-file Get-ADFSAzureMfaAdapterconfig.txt -Append utf8 }
             else
                { "`n`nRegistry Entries for Azure Government have been found. Please review the registy:`n"|out-file Get-ADFSAzureMfaAdapterconfig.txt -Append utf8
                foreach ($_ in $MFAREG)
