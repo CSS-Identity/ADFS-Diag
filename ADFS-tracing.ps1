@@ -601,7 +601,7 @@ if (!$IsProxy)
     $SVCACC = ((get-wmiobject win32_service -Filter "Name='adfssrv'").startname)
     if ($SVCACC.contains('@'))
     {
-        $filter ="(userprincipalname="+$SVCACC.Split('@')[0]+")"
+        $filter ="(userprincipalname="+$SVCACC+")"
         $domain = $SVCACC.Split('@')[1]
     }
     if ($SVCACC.contains('\'))
