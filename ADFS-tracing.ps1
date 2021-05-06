@@ -2,7 +2,6 @@
 # ADFS troubleshooting - Data Collection
 # Supported versions: Windows Server 2012, Windows Server 2012 R2, Windows Server 2016 and Server 2019
 # Supported role: ADFS server, ADFS proxy server (2012) and Web Application Proxy (2012 R2 and 2016 and 2019)
-# Version:Rel2021_02
 ############################################################################################################
 
 param (
@@ -33,15 +32,15 @@ $ADFSExportEvents = 'System','Application','Security','AD FS Tracing/Debug','AD 
 $WAPExportEvents  = 'System','Application','Security','AD FS Tracing/Debug','AD FS/Admin','Microsoft-Windows-CAPI2/Operational','Microsoft-Windows-WebApplicationProxy/Admin','Microsoft-Windows-WebApplicationProxy/Session'
 $DbgLvl = 5
 
-#Kerberos EncryptionTypes Bitmask for common
-$EncTypes = @{
-        "DES-CBC-CRC"             = 1
-        "DES-CBC-MD5"             = 2
-        "RC4-HMAC"                = 4
-        "AES128-CTS-HMAC-SHA1-96" = 8
-        "AES256-CTS-HMAC-SHA1-96" = 16
+#Kerberos EncryptionTypes Bitmask for common ETypes.Requirement is Powershell 5.x for enums
+[flags()] Enum EncTypes
+{
+        DES_CBC_CRC             = 0x01
+        DES_CBC_MD5             = 0x02
+        RC4_HMAC                = 0x04
+        AES128_CTS_HMAC_SHA1_96 = 0x08
+        AES256_CTS_HMAC_SHA1_96 = 0x10
 }
-
 
 #Definition Netlogon Debug Logging
 $setDBFlag = 'DBFlag'
@@ -58,39 +57,39 @@ $orgdbflag = (get-itemproperty -PATH "HKLM:\SYSTEM\CurrentControlSet\Services\Ne
 $orgNLMaxLogSize = (get-itemproperty -PATH "HKLM:\SYSTEM\CurrentControlSet\Services\Netlogon\Parameters").$setNLMaxLogSize
 
 #ETW Trace providers
-$LogmanOn = 'logman.exe create trace "schannel" -ow -o .\schannel.etl -p {37D2C3CD-C5D4-4587-8531-4696C44244C8} 0xffffffffffffffff 0xff -nb 16 16 -bs 1024 -mode Circular -f bincirc -max 2048 -ets',`
-'logman create trace "kerbntlm" -ow -o .\kerbntlm.etl -p {6B510852-3583-4E2D-AFFE-A67F9F223438} 0xffffffffffffffff 0xff -nb 16 16 -bs 1024 -mode Circular -f bincirc -max 2048 -ets',`
-'logman update trace "kerbntlm" -p {5BBB6C18-AA45-49B1-A15F-085F7ED0AA90} 0xffffffffffffffff 0xff -ets',`
-'logman create trace "dcloc" -ow -o .\dcloc.etl -p "Microsoft-Windows-DCLocator" 0xffffffffffffffff 0xff -nb 16 16 -bs 1024 -mode Circular -f bincirc -max 2048 -ets',`
+$LogmanOn = 'logman.exe create trace "schannel" -ow -o .\schannel.etl -p {37D2C3CD-C5D4-4587-8531-4696C44244C8} 0xffffffffffffffff 0xff -nb 16 16 -bs 1024 -mode Circular -f bincirc -max 1024 -ets',`
+'logman create trace "dcloc" -ow -o .\dcloc_krb_ntlmauth.etl -p "Microsoft-Windows-DCLocator" 0xffffffffffffffff 0xff -nb 16 16 -bs 1024 -mode Circular -f bincirc -max 1024 -ets',`
 'logman update trace "dcloc" -p {6B510852-3583-4E2D-AFFE-A67F9F223438} 0xffffffffffffffff 0xff -ets',`
-'logman update trace "dcloc" -p {5BBB6C18-AA45-49B1-A15F-085F7ED0AA90} 0xffffffffffffffff 0xff -ets'
+'logman update trace "dcloc" -p {5BBB6C18-AA45-49B1-A15F-085F7ED0AA90} 0xffffffffffffffff 0xff -ets',`
+'logman create trace "minio_http" -ow -o .\http_trace.etl -p "Microsoft-Windows-HttpService" 0xffffffffffffffff 0xff -nb 16 16 -bs 1024 -mode Circular -f bincirc -max 2048 -ets',`
+'logman update trace "minio_http" -p "Microsoft-Windows-HttpEvent" 0xffffffffffffffff 0xff -ets',`
+'logman update trace "minio_http" -p "Microsoft-Windows-Http-SQM-Provider" 0xffffffffffffffff 0xff -ets',`
+'logman update trace "minio_http" -p {B3A7698A-0C45-44DA-B73D-E181C9B5C8E6} 0xffffffffffffffff 0xff -ets'
 
-#NetworkCapture
-#changed report generation to NO. speeding up the data collection at the end
-$EnableNetworkTracer = 'netsh trace start scenario=internetServer capture=yes report=no overwrite=yes maxsize=800 tracefile=.\%COMPUTERNAME%-HTTP-network.etl provider="{DD5EF90A-6398-47A4-AD34-4DCECDEF795F}" keywords=0xffffffffffffffff level=0xff provider="Microsoft-Windows-HttpService" keywords=0xffffffffffffffff level=0xff provider="Microsoft-Windows-HttpEvent" keywords=0xffffffffffffffff level=0xff provider="Microsoft-Windows-Http-SQM-Provider" keywords=0xffffffffffffffff level=0xff provider="{B3A7698A-0C45-44DA-B73D-E181C9B5C8E6}" keywords=0xffffffffffffffff level=0xff'
+$LogmanOff = 'logman stop "schannel" -ets',`
+'logman stop "minio_http" -ets',`
+'logman stop "dcloc" -ets'
+
+#NetworkCapture+genericInternetTraffic
+$EnableNetworkTracer = 'netsh trace start scenario=internetServer capture=yes report=no overwrite=yes maxsize=500 tracefile=.\%COMPUTERNAME%-network.etl'
 $DisableNetworkTracer = 'netsh trace stop'
 
 #Performance Counter
-$CreatePerfCountProxy = 'Logman.exe create counter ADFSProxy -o ".\ADFSProxy-perf.blg" -f bincirc -max 1024 -v mmddhhmm -c "\AD FS Proxy\*" "\LogicalDisk(*)\*" "\Memory\*" "\PhysicalDisk(*)\*" "\Process(*)\*" "\Processor(*)\*" "\TCPv4\*" -si 0:00:05'
+$CreatePerfCountProxy = 'Logman.exe create counter ADFSProxy -o ".\ADFSProxy-perf.blg" -f bincirc -max 512 -v mmddhhmm -c "\AD FS Proxy\*" "\LogicalDisk(*)\*" "\Memory\*" "\PhysicalDisk(*)\*" "\Process(*)\*" "\Processor(*)\*" "\TCPv4\*" -si 0:00:05'
 $EnablePerfCountProxy = 'Logman.exe start ADFSProxy'
 
 $DisablePerfCountProxy = 'Logman.exe stop ADFSProxy'
 $RemovePerfCountProxy = 'Logman.exe delete ADFSProxy'
 
-$CreatePerfCountADFS = 'Logman.exe create counter ADFSBackEnd -o ".\%COMPUTERNAME%-ADFSBackEnd-perf.blg" -f bincirc -max 1024 -v mmddhhmm -c "\AD FS\*" "\LogicalDisk(*)\*" "\Memory\*" "\PhysicalDisk(*)\*" "\Process(*)\*" "\Processor(*)\*" "\Netlogon(*)\*" "\TCPv4\*" "Netlogon(*)\*" -si 00:00:05'
+$CreatePerfCountADFS = 'Logman.exe create counter ADFSBackEnd -o ".\%COMPUTERNAME%-ADFSBackEnd-perf.blg" -f bincirc -max 512 -v mmddhhmm -c "\AD FS\*" "\LogicalDisk(*)\*" "\Memory\*" "\PhysicalDisk(*)\*" "\Process(*)\*" "\Processor(*)\*" "\Netlogon(*)\*" "\TCPv4\*" "Netlogon(*)\*" -si 00:00:05'
 $EnablePerfCountADFS = 'Logman.exe start ADFSBackEnd'
 
 $DisablePerfCountADFS = 'Logman.exe stop ADFSBackEnd'
 $RemovePerfCountADFS = 'Logman.exe delete ADFSBackEnd'
 
-$LogmanOff = 'logman stop "schannel" -ets',`
-'logman stop "kerbntlm" -ets',`
-'logman stop "dcloc" -ets'
-
 $others = 'nltest /dsgetdc:%USERDNSDOMAIN% > %COMPUTERNAME%-nltest-dsgetdc-USERDNSDOMAIN-BEFORE.txt',`
 'certutil -verifystore AdfsTrustedDevices > %COMPUTERNAME%-certutil-verifystore-AdfsTrustedDevices-BEFORE.txt',`
-'certutil -v -store AdfsTrustedDevices > %COMPUTERNAME%-certutil-v-store-AdfsTrustedDevices-BEFORE.txt',`
-'ipconfig /flushdns > %COMPUTERNAME%-ipconfig-flushdns-BEFORE.txt'
+'ipconfig /flushdns'
 
 #Collection for Additional Files
 $Filescollector = 'copy /y %windir%\debug\netlogon.*  ',`
@@ -101,9 +100,8 @@ $Filescollector = 'copy /y %windir%\debug\netlogon.*  ',`
 'set > %COMPUTERNAME%-environment-variables-AFTER.txt',`
 'route print > %COMPUTERNAME%-route-print-AFTER.txt',`
 'netsh advfirewall show global > %COMPUTERNAME%-netsh-int-advf-show-global.txt',`
-'net start > %COMPUTERNAME%-services-running-AFTER.txt',`
-'sc query  > %COMPUTERNAME%-services-config-AFTER.txt',`
-'tasklist > %COMPUTERNAME%-tasklist-AFTER.txt',`
+'powershell -command "& {get-service |ft DisplayName,Status,StartType -autosize | out-file %COMPUTERNAME%-services-running-AFTER.txt}"',`
+'powershell -command "& {get-process |Sort-Object Id |ft Name,Id, SessionId,WorkingSet -AutoSize |out-file %COMPUTERNAME%-tasklist-AFTER.txt}"',`
 'if defined USERDNSDOMAIN (nslookup %USERDNSDOMAIN% > %COMPUTERNAME%-nslookup-USERDNSDOMAIN-AFTER.txt)',`
 'nltest /dsgetdc:%USERDNSDOMAIN% > %COMPUTERNAME%-nltest-dsgetdc-USERDNSDOMAIN-AFTER.txt',`
 'certutil -verifystore my > %COMPUTERNAME%-certutil-verifystore-my.txt',`
@@ -113,9 +111,8 @@ $Filescollector = 'copy /y %windir%\debug\netlogon.*  ',`
 'certutil -v -store my > %COMPUTERNAME%-certutil-v-store-my.txt',`
 'certutil -v -store ca > %COMPUTERNAME%-certutil-v-store-ca.txt',`
 'certutil -v -store root > %COMPUTERNAME%-certutil-v-store-root.txt',`
-'certutil -v -store AdfsTrustedDevices > %COMPUTERNAME%-certutil-v-store-AdfsTrustedDevices-AFTER.txt',`
-'certutil –urlcache > %COMPUTERNAME%-cerutil-urlcache.txt',`
-'certutil –v –store –enterprise ntauth > %COMPUTERNAME%-cerutil-v-store-enterprise-ntauth.txt',`
+'certutil –urlcache > %COMPUTERNAME%-certutil-urlcache.txt',`
+'certutil –v –store –enterprise ntauth > %COMPUTERNAME%-certutil-v-store-enterprise-ntauth.txt',`
 'netsh int ipv4 show dynamicport tcp > %COMPUTERNAME%-netsh-int-ipv4-show-dynamicport-tcp.txt',`
 'netsh int ipv4 show dynamicport udp > %COMPUTERNAME%-netsh-int-ipv4-show-dynamicport-udp.txt',`
 'netsh int ipv6 show dynamicport tcp > %COMPUTERNAME%-netsh-int-ipv6-show-dynamicport-tcp.txt',`
@@ -140,7 +137,6 @@ $Filescollector = 'copy /y %windir%\debug\netlogon.*  ',`
 'regedit /e %COMPUTERNAME%-reg-schannel_NET_WOW_strong_crypto.txt HKEY_LOCAL_MACHINE\SOFTWARE\WOW6432Node\Microsoft\.NETFramework',`
 'regedit /e %COMPUTERNAME%-reg-ciphers_policy_registry.txt HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Cryptography\Configuration\SSL'
 
-
 #endregion
 ##########################################################################
 #region UI
@@ -161,19 +157,14 @@ $Description                     = New-Object system.Windows.Forms.RichTextBox
 $Description.multiline           = $true
 $Description.text                = "Before running this script consider running the ADFS Diagnostic Analyzer to detect possible existing configuration problems
 You can obtain the ADFS Diagnostic Analyzer from the following webpage: https://adfshelp.microsoft.com/DiagnosticsAnalyzer/Analyze
-
 This ADFS Tracing script is intended to collect various details about the ADFS configuration and related Windows Settings.
-
 It also provides the capability to collect various debug logs at runtime for issues that needs to be actively reproduced or are otherwise not detectable
 via the ADFS Diagnostic Analyzer and the resulting data can be provided to a Microsoft support technician for analysis.
-
 When running a Debug/Runtime Trace you can choose to add Network Traces and/or Performance Counter to the collection if it is required to troubleshoot
 a particular issue.
-
 The script will prepare itself to start capturing data and will prompt the Administrator once the data collection script is ready.
 When you have the script in this prompt on all the servers, just hit any key to start collecting data in all of them.
 It will then display another message to inform you that it's collecting data and will wait for another key to be pressed to stop the capture.
-
 Note: The script will capture multiple traces in circular buffers. It will use a temporary folder under the path you provide (Example: C:\tracing\temporary).
 The temporary folder will be compressed and .zip file left in the path file you selected.
 In worst case it will require 10-12 GB depending on the workload and the time we keep it running, but usually it's below 4GB.
@@ -352,10 +343,11 @@ $c.SessionOptions.SecureSocketLayer = $false;
 $c.SessionOptions.Sealing = $true
 $c.AuthType = [System.DirectoryServices.Protocols.AuthType]::Kerberos
 $c.Bind();
-$basedn = (New-Object System.DirectoryServices.DirectoryEntry("LDAP://$conn/RootDSE")).DefaultNamingContext
+$c.Timeout=[timespan]::FromSeconds(45)
+if([string]::IsNullOrEmpty($basedn)){ $basedn = (New-Object System.DirectoryServices.DirectoryEntry("LDAP://$conn/RootDSE")).DefaultNamingContext}
 $scope = [System.DirectoryServices.Protocols.SearchScope]::Subtree
 $r = New-Object System.DirectoryServices.Protocols.SearchRequest -ArgumentList $basedn,$filter,$scope,$att
-$re = $c.SendRequest($r)
+$re = try { $c.SendRequest($r)}catch{$_.Exception.InnerException }
 $c.Dispose()
 return $re
 }
@@ -423,7 +415,6 @@ Function EnableNetlogonDebug
     { Write-Host "Netlogon Logging skipped due to scenario" -ForegroundColor DarkCyan }
 }
 
-
 Function AllOtherLogs
 {
 	ForEach ($o in $others)
@@ -485,7 +476,6 @@ Function DisableDebugEvents ($events)
 			    $TraceLog.SaveChanges()
             }
         }
-
     }
     else
     { Write-host "Debug Tracing Eventlogs where not enabled" -ForegroundColor DarkCyan }
@@ -536,7 +526,6 @@ Function GatherTheRest
 		Pop-Location
     }
 }
-
 
 Function EnablePerfCounter
 {
@@ -609,17 +598,17 @@ function getServiceAccountDetails
 {
 if (!$IsProxy)
 {
-$SVCACC = ((get-wmiobject win32_service -Filter "Name='adfssrv'").startname) #currently fails if a upn is used//mostly if logonname of service got set manually
-if ($SVCACC.contains('@'))
-{
-    $filter ="(userprincipalname="+$SVCACC.Split('@')[0]+")"
-    $domain = $SVCACC.Split('@')[1]
-}
-if ($SVCACC.contains('\'))
-{
-    $filter ="(samaccountname="+$SVCACC.Split('\')[1]+")"
-    $domain = $SVCACC.Split('\')[0]
-}
+    $SVCACC = ((get-wmiobject win32_service -Filter "Name='adfssrv'").startname)
+    if ($SVCACC.contains('@'))
+    {
+        $filter ="(userprincipalname="+$SVCACC+")"
+        $domain = $SVCACC.Split('@')[1]
+    }
+    if ($SVCACC.contains('\'))
+    {
+        $filter ="(samaccountname="+$SVCACC.Split('\')[1]+")"
+        $domain = $SVCACC.Split('\')[0]
+    }
 
 $conn= (New-Object System.DirectoryServices.DirectoryEntry("LDAP://$domain/RootDSE")).dnshostname
 [string]$att = "*"
@@ -628,14 +617,17 @@ $conn= (New-Object System.DirectoryServices.DirectoryEntry("LDAP://$domain/RootD
 
 $re= LDAPQuery -filter $filter -att $att -conn $conn
 $gmsa =$false
-$gmsa = [Bool]($re.Entries.Attributes.objectclass.GetValues('string') -eq 'msDS-GroupManagedServiceAccount')
-"Service Account is GMSA: " + $gmsa | out-file Get-ServicePrincipalNames.txt -Append
+
+if($re.GetType().Name -eq 'SearchResponse')
+{
+        $gmsa = [Bool]($re.Entries.Attributes.objectclass.GetValues('string') -eq 'msDS-GroupManagedServiceAccount')
+        "Service Account is GMSA: " + $gmsa | out-file Get-ServicePrincipalNames.txt -Append
 
     if($gmsa -eq $true)
     {
-    $adl = new-object System.DirectoryServices.ActiveDirectorySecurity
-    $adl.SetSecurityDescriptorBinaryForm($re.Entries[0].Attributes.'msds-groupmsamembership'[0])
-    "`nGMSA allowed Hosts: `n" + $adl.AccessToString |ft |out-file Get-ServicePrincipalNames.txt -Append
+        $adl = new-object System.DirectoryServices.ActiveDirectorySecurity
+        $adl.SetSecurityDescriptorBinaryForm($re.Entries[0].Attributes.'msds-groupmsamembership'[0])
+        "`nGMSA allowed Hosts: `n" + $adl.AccessToString |ft |out-file Get-ServicePrincipalNames.txt -Append
     }
     else {"`nService Account used is a generic User"| out-file Get-ServicePrincipalNames.txt -Append}
 
@@ -646,23 +638,30 @@ $gmsa = [Bool]($re.Entries.Attributes.objectclass.GetValues('string') -eq 'msDS-
     Try { $EncType= [int]::Parse($re.Entries[0].Attributes.'msds-supportedencryptiontypes'.GetValues('string')) }
     Catch { "We handled an exception when reading msds-supportedencryptiontypes, which implies the attribute is not configured. This is not a critical error"; }
 
-    $KRBflags = [System.Collections.ArrayList]::new()
+    $KRBflags=$null
     if(![string]::IsNullOrEmpty($EncType))
     {
-    foreach ($etype in ($EncTypes.GetEnumerator() | Sort-Object -Property Value ))
-        { if (($EncType -band $etype.Value) -ne 0) { $KRBflags.Add($etype.Key.ToString()) |out-null } }
+        $KRBflags = [regex]::replace(([EncTypes]$EncType), ", "," | ")
     }
-    else
-        { $KRBflags.Add("`n`tmsds-supportedencryptiontypes is not configured on the service account, Service tickets would be RC4 only!`n`tFor AES Support configure the msds-supportedencryptiontypes on the ADFS Service Account with a value of either:`n`t24(decimal) == AES only `n`t or `n`t28(decimal) == AES & RC4") }
+    else { $KRBflags ="`n`tmsds-supportedencryptiontypes is not configured on the service account, Service tickets would be RC4 only!`n`tFor AES Support configure the msds-supportedencryptiontypes on the ADFS Service Account with a value of either:`n`t24(decimal) == AES only `n`t or `n`t28(decimal) == AES & RC4" }
 
-    "`nKerberos Encryption Types supported by Service Account: " + ($KRBflags -join ' | ') |Out-File Get-ServicePrincipalNames.txt -Append
-    "`nChecking for Duplicate SPNs( current ServiceAccount will be included in this check):`n" |out-file Get-ServicePrincipalNames.txt -Append
+    "`nKerberos Encryption Types supported by Service Account: " + $KRBflags |Out-File Get-ServicePrincipalNames.txt -Append
+}
+else
+    {"Service Account query failed with error: "+$re.Message |Out-File Get-ServicePrincipalNames.txt -Append}
+
+"`nChecking for Duplicate SPNs( current ServiceAccount will be included in this check):`n" |out-file Get-ServicePrincipalNames.txt -Append
 
     $conn= (New-Object System.DirectoryServices.DirectoryEntry("GC://$domain/RootDSE")).dnshostname
     $filter= "(serviceprincipalname="+('*/'+(get-adfsproperties).hostname)+")"
     [string]$att = "*"
     $re= LDAPQuery -filter $filter -att $att -conn $conn
-    $re.Entries |foreach {$_.distinguishedName |out-file Get-ServicePrincipalNames.txt -Append ;$_.Attributes.'serviceprincipalname'.GetValues('string')|out-file Get-ServicePrincipalNames.txt -Append}
+if($re.GetType().Name -eq 'SearchResponse')
+{
+    $re.Entries |foreach {$_.distinguishedName |out-file Get-ServicePrincipalNames.txt -Append ; $_.Attributes.'serviceprincipalname'.GetValues('string')|out-file Get-ServicePrincipalNames.txt -Append }
+}
+else
+    {"Duplicate SPN Query failed with error: "+$re.Message |Out-File Get-ServicePrincipalNames.txt -Append}
 }
 }
 
@@ -735,8 +734,39 @@ Function GetADFSConfig
 		$svccfg = 'copy %WINDIR%\ADFS\Microsoft.IdentityServer.ServiceHost.Exe.Config %COMPUTERNAME%-Microsoft.IdentityServer.ServiceHost.Exe.Config'
         cmd.exe /c $svccfg |Out-Null
 
-        if (Get-AdfsAzureMfaConfigured)
-        { Export-AdfsAuthenticationProviderConfigurationData -name AzureMfaAuthentication -FilePath Get-ADFSAzureMfaAdapterconfig.txt }
+        if (Get-AdfsAzureMfaConfigured) #needs further enhancement for secondary ADFS
+        { Export-AdfsAuthenticationProviderConfigurationData -name AzureMfaAuthentication -FilePath Get-ADFSAzureMfaAdapterconfig.txt
+
+            $tenantId = Select-xml -Path ".\Get-ADFSAzureMfaAdapterconfig.txt" -Xpath "//TenantId" |foreach {$_.node.InnerXML}
+            if(![string]::IsNullOrEmpty((get-childitem Cert:\LocalMachine\my | where-object {$_.Subject -contains "CN="+"$tenantId"+", OU=Microsoft AD FS Azure MFA"})))
+            { "`n`nA suitable Azure MFA Certificate was found in the store" |out-file Get-ADFSAzureMfaAdapterconfig.txt -Append utf8 }
+            else
+            { "`n`nWarning: Couldnt find an Azure MFA Certificate matching the TenantID in the adapters configuration." |out-file Get-ADFSAzureMfaAdapterconfig.txt -Append utf8
+             $mfacert= get-childitem Cert:\LocalMachine\my | where-object {$_.Subject -match 'OU=Microsoft AD FS Azure MFA'}
+             if($mfacert.count -eq '0')
+             {"Warning: Azure MFA is configured but there are no Azure MFA Certificates existing in the local machines store." |out-file Get-ADFSAzureMfaAdapterconfig.txt -Append utf8 }
+             else
+             {
+             $mfacert |out-file Get-ADFSAzureMfaAdapterconfig.txt -Append utf8
+             }
+            }
+             $adfsreg= Get-Item -LiteralPath "HKLM:\SOFTWARE\Microsoft\ADFS"
+             $MFAREG = 'StsUrl','SasUrl','ResourceUri'
+             $obj = @{}
+            if ($adfsreg.Property -notcontains 'SasUrl' -and $adfsreg.Property -notcontains 'StsUrl' -and $adfsreg.Property -notcontains 'ResourceUri')
+               { "`n`nAzure MFA has not been configured for Azure Government and will use the default Public environment."|out-file Get-ADFSAzureMfaAdapterconfig.txt -Append utf8 }
+            else
+               { "`n`nRegistry Entries for Azure Government have been found. Please review the registy:`n"|out-file Get-ADFSAzureMfaAdapterconfig.txt -Append utf8
+               foreach ($_ in $MFAREG)
+                   {
+                   if($adfsreg.Property -contains $_)
+                     { $obj.add($_, $adfsreg.GetValue($_)) }
+                   else
+                     { $obj.add($_,'Key does not exist') }
+                   }
+               $obj.GetEnumerator() |Select-Object @{Label='RegKeyName';Expression={$_.Key}},@{Label='RegKeyValue';Expression={$_.Value}} |out-file Get-ADFSAzureMfaAdapterconfig.txt -Append utf8
+               }
+        }
         ##comming soon: WHFB Cert Trust Informations
         if ($WinVer -ge [Version]"10.0.17763") #ADFS command specific to ADFS 2019+
         {
@@ -802,27 +832,26 @@ Function GetDRSConfig
 	{
 		Push-Location $TraceDir
 		Get-AdfsDeviceRegistrationUpnSuffix | format-list * | Out-file "Get-AdfsDeviceRegistrationUpnSuffix.txt"
-		Try { Get-AdfsDeviceRegistration | format-list * | Out-file "Get-AdfsDeviceRegistration.txt" }  Catch { $_.Exception.Message | Out-file "Get-AdfsDeviceRegistration.txt" }
-		Try
-		{
-			$rootdse = New-Object System.DirectoryServices.DirectoryEntry("LDAP://RootDSE")
-			$dirEntry = "LDAP://" +$rootdse.dnshostname+"/CN=DeviceRegistrationService,CN=Device Registration Services,CN=Device Registration Configuration,CN=Services," +$rootdse.configurationNamingContext
-			$searcher = new-object System.DirectoryServices.DirectorySearcher
-			$searcher.SearchRoot = $dirEntry
-			$searcher.SearchScope = "Subtree"
-			$DScloudissuerpubliccert = new-object System.Security.Cryptography.X509Certificates.X509Certificate2
-			$DScloudissuerpubliccert.Import(($searcher.FindAll()).GetDirectoryEntry().Properties.'msds-cloudissuerpubliccertificates'.Value)
-			$DSissuerpubliccert = new-object System.Security.Cryptography.X509Certificates.X509Certificate2
-			$DSissuerpubliccert.Import(($searcher.FindAll()).GetDirectoryEntry().Properties.'msDS-IssuerPublicCertificates'.Value)
-			"==========================CloudDRSIssuerCertificatePublicKey======================================" | Out-File Get-AdfsDeviceRegistration.txt -Append
-			$DScloudissuerpubliccert |fl * | Out-File Get-AdfsDeviceRegistration.txt -Append
-			"=============================DRSIssuerCertificatePublicKey========================================" | Out-File Get-AdfsDeviceRegistration.txt -Append
-			$DSissuerpubliccert |fl * | Out-File Get-AdfsDeviceRegistration.txt -Append
-		}
-		catch
-		{
-			"The function DRSConfig ran into the following Error when querying the AD DRS Object: " + ($_) | Out-File DiagnosticsDebug.txt -Append
-		}
+		Try { $drs= Get-AdfsDeviceRegistration; $drs| Out-file "Get-AdfsDeviceRegistration.txt" }  Catch { $_.Exception.Message | Out-file "Get-AdfsDeviceRegistration.txt" }
+
+            $dse = (New-Object System.DirectoryServices.DirectoryEntry("LDAP://"+(Get-WmiObject -Class Win32_ComputerSystem).Domain+"/RootDSE"))
+            $conn= $dse.dnsHostName
+            $basednq = "CN=DeviceRegistrationService,CN=Device Registration Services,CN=Device Registration Configuration,CN=Services," +$dse.configurationNamingContext
+            $filter= "(objectClass=*)"
+            $re= LDAPQuery -filter $filter -att $att -conn $conn -basedn $basednq
+            if($re.GetType().Name -eq 'SearchResponse')
+            {
+             $DScloudissuerpubliccert = new-object System.Security.Cryptography.X509Certificates.X509Certificate2
+              $DSissuerpubliccert = new-object System.Security.Cryptography.X509Certificates.X509Certificate2
+              try{$DScloudissuerpubliccert.Import($re.Entries.Attributes.'msds-cloudissuerpubliccertificates'.GetValues('byte[]')[0])}catch{}
+              try{$DSissuerpubliccert.Import($re.Entries.Attributes.'msds-issuerpubliccertificates'.GetValues('byte[]')[0]) }catch{}
+
+              "DRS Cloud Issuer Certificate`nThumbprint:"+ $DScloudissuerpubliccert.Thumbprint + "`nIssuer:" +$DScloudissuerpubliccert.Issuer |Out-File Get-AdfsDeviceRegistration.txt -Append
+              "`nDRS Onprem Issuer Certificate`nThumbprint:"+ $DSissuerpubliccert.Thumbprint + "`nIssuer:" +$DSissuerpubliccert.Issuer |Out-File Get-AdfsDeviceRegistration.txt -Append
+		    }
+            else
+            {"DRS Service Object search failed: "+$re.Message |Out-File Get-AdfsDeviceRegistration.txt -Append}
+
 		pop-location
 	}
 }
@@ -856,9 +885,7 @@ elseif (![string]::IsNullOrEmpty($Path))
                  }
     }
     else
-    {
-        $ConfigOnly=$false
-    }
+    { $ConfigOnly=$false }
 
     If (($TraceEnabled -and ($NetTraceEnabled -eq $false))  )
     {
@@ -872,7 +899,6 @@ elseif (![string]::IsNullOrEmpty($Path))
     }
 
     if (($TraceEnabled -and ($PerfCounter -eq $false)))
-
     {
             $PMode = Read-Host 'Collect Performance Counters (Y/N). You you do not provide a value network tracing is enabled by default'
             Switch ($PMode)
@@ -882,13 +908,10 @@ elseif (![string]::IsNullOrEmpty($Path))
                    Default {Write-Host "You provided an incorrect or no value. Skipping Performance Counters"; $PerfCounter=$false; $ConfigOnly=$false}
               }
     }
-
 }
 
 if(Test-Path -Path $Path)
-{
-   Write-host "Your folder: $Path already exists. Starting Data Collection..." -ForegroundColor DarkCyan
-}
+{ Write-host "Your folder: $Path already exists. Starting Data Collection..." -ForegroundColor DarkCyan }
 else
 {
 Write-host "Your Logfolder: $Path does not exist. Creating Folder" -ForegroundColor DarkCyan
@@ -953,7 +976,7 @@ Write-Progress -Activity "Collecting" -Status 'Stop additional logs' -percentcom
     DisablePerfCounter
     DisableNetlogonDebug
 
-Write-Progress -Activity "Collecting" -Status 'Getting ' -percentcomplete 70
+Write-Progress -Activity "Collecting" -Status 'Getting otherlogs' -percentcomplete 70
 GatherTheRest
 
 Write-Progress -Activity "Collecting" -Status 'Exporting Eventlogs' -percentcomplete 85
