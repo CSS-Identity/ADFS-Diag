@@ -75,7 +75,7 @@ When the scripts finish, please upload the folder to the workspace provided by t
 
 
 ##### Output File Reference:
-//incomplete as of 11.04.2021. THe list will change with the next release
+
 | Filename | Description |
 | ----------- | ----------- |
 | AD FS Tracing-Debug.evtx | contains verbose diagnostics like claim processing details and/or exception details |
@@ -85,7 +85,9 @@ When the scripts finish, please upload the folder to the workspace provided by t
 | Device Registration Service Tracing-Debug.evtx | Device Registration Service diagnostic events |
 | Microsoft-Windows-CAPI2-Operational.evtx | Crypto API Events allowing to analys Certificate Validation issues |
 | Security.evtx | Security Eventlogs of the Operating System. Size is limited to maximum 1hour or for the duration of a trace session |
-| System.evtx | SYstem Event logs |
+| Microsoft-Windows-WebApplicationProxy-Session.evtx | WAP Debug Event logs* |
+| Microsoft-Windows-WebApplicationProxy-Admin.evtx | WAP Admin Event logs* |
+| System.evtx | System Event logs |
 | Hostname-<ADFSBackEnd/ADFSProxy>-perf_<datetime>.blg | Performance Counter informations for the duration of a trace.  |
 | Hostname-certutil-v-store-ca.txt | enumeration of the Intermediate Authentication Certificate Store of the computer in verbose  |
 | Hostname-certutil-v-store-my.txt | enumeration of the Personal CertificateStore of the computer in Verbose |
@@ -180,6 +182,12 @@ When the scripts finish, please upload the folder to the workspace provided by t
 | netlogon.bak | netlogon debug log backup file (usually created if the log file itself exceeds 100mb during a longer tracing period |
 | netlogon.log | netlogon debug log informations |
 | schannel.etl | schannel (TLS/SSL provider) debug file in a binary format |
+| Get-WebApplicationProxyApplication.txt | Lists the published applications |
+| Get-WebApplicationProxyAvailableADFSRelyingParty.txt | list of available relying parties configured on a federation server|
+| Get-WebApplicationProxyConfiguration.txt | Global Web Application Proxy settings |
+| Get-WebApplicationProxyHealth.txt | Health status of the Web Application Proxy server |
+| Get-WebApplicationProxySslCertificate.txt | binding information for the SSL certificate for federation server proxy |
+| HOSTNAME-Microsoft.IdentityServer.ProxyService.exe.config | 
 | transscript_output.txt | diagnostics/telemetry about the execution of the script |
 | LocaleMetaData\ AD FS Tracing-Debug_1033.MTA | ADFS Tracing eventlog in a localized format (system language) |
 | LocaleMetaData\ AD FS-Admin_1033.MTA | ADFS Admin eventlog in a localized format (system language)  |
