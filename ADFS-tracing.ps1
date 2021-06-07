@@ -32,16 +32,12 @@ $ADFSExportEvents = 'System','Application','Security','AD FS Tracing/Debug','AD 
 $WAPExportEvents  = 'System','Application','Security','AD FS Tracing/Debug','AD FS/Admin','Microsoft-Windows-CAPI2/Operational','Microsoft-Windows-WebApplicationProxy/Admin','Microsoft-Windows-WebApplicationProxy/Session'
 $DbgLvl = 5
 
-#Kerberos EncryptionTypes Bitmask for common ETypes.Requirement is Powershell 5.x for enums
-[flags()] Enum EncTypes
+#Import HelperModules
+if($PSVersionTable.PSVersion -le [Version]'4.0')
 {
-        DES_CBC_CRC             = 0x01
-        DES_CBC_MD5             = 0x02
-        RC4_HMAC                = 0x04
-        AES128_CTS_HMAC_SHA1_96 = 0x08
-        AES256_CTS_HMAC_SHA1_96 = 0x10
+Import-Module .\helpermodules\krbtype_enum_v4.psm1 -Verbose
 }
-
+else{Import-Module .\helpermodules\krbtype_enum_v5.psm1 -Verbose}
 #Definition Netlogon Debug Logging
 $setDBFlag = 'DBFlag'
 $setvaltype = [Microsoft.Win32.RegistryValueKind]::String
@@ -641,7 +637,7 @@ if($re.GetType().Name -eq 'SearchResponse')
     $KRBflags=$null
     if(![string]::IsNullOrEmpty($EncType))
     {
-        $KRBflags = [regex]::replace(([EncTypes]$EncType), ", "," | ")
+        $KRBflags = enumerateKrb $EncType
     }
     else { $KRBflags ="`n`tmsds-supportedencryptiontypes is not configured on the service account, Service tickets would be RC4 only!`n`tFor AES Support configure the msds-supportedencryptiontypes on the ADFS Service Account with a value of either:`n`t24(decimal) == AES only `n`t or `n`t28(decimal) == AES & RC4" }
 
