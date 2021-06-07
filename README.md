@@ -28,7 +28,8 @@ Once the tracing has completed, the script will automatically generate a archive
   You can get the WMF from https://www.microsoft.com/en-us/download/details.aspx?id=54616
     
 
-Download the script and copy the file to the servers that needed to be traced
+Download the zip file via the green "code" button and extract the Zip file to a location on the servers you want to trace.
+
 You can run the script from Powershell ISE or from Powershell Console 
 
 ##### Running the Tracing Script interactively:
