@@ -24,10 +24,9 @@ Once the tracing has completed, the script will automatically generate a archive
 - local administrator privileges are required to run the scripts at minimum. 
 - Preferably the account is also a Domain User
 - a miminum of 5GB of free diskspace on the volume for the target folder when running the tracing for a longer period
-- on Windows Server 2012R2 it is required to have the Windows Management Framework 5.1 (WMF) aka Powershell 5.0 installed
+- on Windows Server 2012R2 it is recommended (not mandatory) to have the Windows Management Framework 5.1 (WMF) aka Powershell 5.0 installed
   You can get the WMF from https://www.microsoft.com/en-us/download/details.aspx?id=54616
-  
-  !!!A fix adding more compatibility with Powershell 4 on Server 2012R2 is being tested and will be released soon
+    
 
 Download the script and copy the file to the servers that needed to be traced
 You can run the script from Powershell ISE or from Powershell Console 
