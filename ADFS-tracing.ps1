@@ -32,12 +32,14 @@ $ADFSExportEvents = 'System','Application','Security','AD FS Tracing/Debug','AD 
 $WAPExportEvents  = 'System','Application','Security','AD FS Tracing/Debug','AD FS/Admin','Microsoft-Windows-CAPI2/Operational','Microsoft-Windows-WebApplicationProxy/Admin','Microsoft-Windows-WebApplicationProxy/Session'
 $DbgLvl = 5
 
-#Import HelperModules
+#Import Modules
+import-Module $PSScriptRoot\helpermodules\proxysettings.psm1 -Verbose
+import-Module $PSScriptRoot\helpermodules\certificates.psm1 -Verbose
 if($PSVersionTable.PSVersion -le [Version]'4.0')
-{
-Import-Module .\helpermodules\krbtype_enum_v4.psm1 -Verbose
-}
-else{Import-Module .\helpermodules\krbtype_enum_v5.psm1 -Verbose}
+{Import-Module $PSScriptRoot\helpermodules\krbtype_enum_v4.psm1 -Verbose} else {Import-Module $PSScriptRoot\helpermodules\krbtype_enum_v5.psm1 -Verbose}
+if ($WinVer -ge [Version]"10.0.14393")
+{import-Module $PSScriptRoot\helpermodules\getconfigfromdb.psm1 -Verbose;import-Module $PSScriptRoot\helpermodules\getazuremfaconfig.psm1 -Verbose}
+
 #Definition Netlogon Debug Logging
 $setDBFlag = 'DBFlag'
 $setvaltype = [Microsoft.Win32.RegistryValueKind]::String
@@ -100,15 +102,6 @@ $Filescollector = 'copy /y %windir%\debug\netlogon.*  ',`
 'powershell -command "& {get-process |Sort-Object Id |ft Name,Id, SessionId,WorkingSet -AutoSize |out-file %COMPUTERNAME%-tasklist-AFTER.txt}"',`
 'if defined USERDNSDOMAIN (nslookup %USERDNSDOMAIN% > %COMPUTERNAME%-nslookup-USERDNSDOMAIN-AFTER.txt)',`
 'nltest /dsgetdc:%USERDNSDOMAIN% > %COMPUTERNAME%-nltest-dsgetdc-USERDNSDOMAIN-AFTER.txt',`
-'certutil -verifystore my > %COMPUTERNAME%-certutil-verifystore-my.txt',`
-'certutil -verifystore ca > %COMPUTERNAME%-certutil-verifystore-ca.txt',`
-'certutil -verifystore root > %COMPUTERNAME%-certutil-verifystore-root.txt',`
-'certutil -verifystore AdfsTrustedDevices > %COMPUTERNAME%-certutil-verifystore-AdfsTrustedDevices-AFTER.txt',`
-'certutil -v -store my > %COMPUTERNAME%-certutil-v-store-my.txt',`
-'certutil -v -store ca > %COMPUTERNAME%-certutil-v-store-ca.txt',`
-'certutil -v -store root > %COMPUTERNAME%-certutil-v-store-root.txt',`
-'certutil –urlcache > %COMPUTERNAME%-certutil-urlcache.txt',`
-'certutil –v –store –enterprise ntauth > %COMPUTERNAME%-certutil-v-store-enterprise-ntauth.txt',`
 'netsh int ipv4 show dynamicport tcp > %COMPUTERNAME%-netsh-int-ipv4-show-dynamicport-tcp.txt',`
 'netsh int ipv4 show dynamicport udp > %COMPUTERNAME%-netsh-int-ipv4-show-dynamicport-udp.txt',`
 'netsh int ipv6 show dynamicport tcp > %COMPUTERNAME%-netsh-int-ipv6-show-dynamicport-tcp.txt',`
@@ -120,7 +113,6 @@ $Filescollector = 'copy /y %windir%\debug\netlogon.*  ',`
 'netsh http show servicestate > %COMPUTERNAME%-netsh-http-show-servicestate.txt',`
 'netsh http show timeout > %COMPUTERNAME%-netsh-http-show-timeout.txt',`
 'netsh http show urlacl > %COMPUTERNAME%-netsh-http-show-urlacl.txt',`
-'netsh winhttp show proxy > %COMPUTERNAME%-netsh-winhttp-proxy.txt',`
 'wmic qfe list full /format:htable > %COMPUTERNAME%-WindowsPatches.htm',`
 'GPResult /f /h %COMPUTERNAME%-GPReport.html',`
 'Msinfo32 /nfo %COMPUTERNAME%-msinfo32-AFTER.nfo',`
@@ -519,6 +511,12 @@ Function GatherTheRest
     {
 		Push-Location $TraceDir
 		cmd.exe /c $logfile | out-null
+        GetProxySettings | out-file  $env:COMPUTERNAME-ProxySettings.txt
+        Get-LocalMachineCerts| out-file  $env:COMPUTERNAME-Certificates-My.txt
+        Get-RootCACertificates| out-file  $env:COMPUTERNAME-Certificates-Root.txt
+        Get-IntermediateCACertificates| out-file  $env:COMPUTERNAME-Certificates-CA.txt
+        Get-NTauthCertificates| out-file  $env:COMPUTERNAME-Certificates-NTAuth.txt
+        Get-ADFSTrustedDevicesCertificates| out-file  $env:COMPUTERNAME-Certificates-ADFSTrustedDevices.txt
 		Pop-Location
     }
 }
@@ -726,43 +724,10 @@ Function GetADFSConfig
 		Get-AdfsWebApplicationProxyRelyingPartyTrust | format-list * | Out-file "Get-AdfsWebApplicationProxyRelyingPartyTrust.txt"
 		Get-AdfsWebConfig | format-list * | Out-file "Get-AdfsWebConfig.txt"
 		Get-AdfsWebTheme | format-list * | Out-file "Get-AdfsWebTheme.txt"
-
 		$svccfg = 'copy %WINDIR%\ADFS\Microsoft.IdentityServer.ServiceHost.Exe.Config %COMPUTERNAME%-Microsoft.IdentityServer.ServiceHost.Exe.Config'
         cmd.exe /c $svccfg |Out-Null
+        Get-ADFSAzureMfaAdapterconfig |fl | Out-file "Get-ADFSAzureMfaAdapterconfig.txt"
 
-        if (Get-AdfsAzureMfaConfigured) #needs further enhancement for secondary ADFS
-        { Export-AdfsAuthenticationProviderConfigurationData -name AzureMfaAuthentication -FilePath Get-ADFSAzureMfaAdapterconfig.txt
-
-            $tenantId = Select-xml -Path ".\Get-ADFSAzureMfaAdapterconfig.txt" -Xpath "//TenantId" |foreach {$_.node.InnerXML}
-            if(![string]::IsNullOrEmpty((get-childitem Cert:\LocalMachine\my | where-object {$_.Subject -contains "CN="+"$tenantId"+", OU=Microsoft AD FS Azure MFA"})))
-            { "`n`nA suitable Azure MFA Certificate was found in the store" |out-file Get-ADFSAzureMfaAdapterconfig.txt -Append utf8 }
-            else
-            { "`n`nWarning: Couldnt find an Azure MFA Certificate matching the TenantID in the adapters configuration." |out-file Get-ADFSAzureMfaAdapterconfig.txt -Append utf8
-             $mfacert= get-childitem Cert:\LocalMachine\my | where-object {$_.Subject -match 'OU=Microsoft AD FS Azure MFA'}
-             if($mfacert.count -eq '0')
-             {"Warning: Azure MFA is configured but there are no Azure MFA Certificates existing in the local machines store." |out-file Get-ADFSAzureMfaAdapterconfig.txt -Append utf8 }
-             else
-             {
-             $mfacert |out-file Get-ADFSAzureMfaAdapterconfig.txt -Append utf8
-             }
-            }
-             $adfsreg= Get-Item -LiteralPath "HKLM:\SOFTWARE\Microsoft\ADFS"
-             $MFAREG = 'StsUrl','SasUrl','ResourceUri'
-             $obj = @{}
-            if ($adfsreg.Property -notcontains 'SasUrl' -and $adfsreg.Property -notcontains 'StsUrl' -and $adfsreg.Property -notcontains 'ResourceUri')
-               { "`n`nAzure MFA has not been configured for Azure Government and will use the default Public environment."|out-file Get-ADFSAzureMfaAdapterconfig.txt -Append utf8 }
-            else
-               { "`n`nRegistry Entries for Azure Government have been found. Please review the registy:`n"|out-file Get-ADFSAzureMfaAdapterconfig.txt -Append utf8
-               foreach ($_ in $MFAREG)
-                   {
-                   if($adfsreg.Property -contains $_)
-                     { $obj.add($_, $adfsreg.GetValue($_)) }
-                   else
-                     { $obj.add($_,'Key does not exist') }
-                   }
-               $obj.GetEnumerator() |Select-Object @{Label='RegKeyName';Expression={$_.Key}},@{Label='RegKeyValue';Expression={$_.Value}} |out-file Get-ADFSAzureMfaAdapterconfig.txt -Append utf8
-               }
-        }
         ##comming soon: WHFB Cert Trust Informations
         if ($WinVer -ge [Version]"10.0.17763") #ADFS command specific to ADFS 2019+
         {
