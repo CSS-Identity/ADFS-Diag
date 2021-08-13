@@ -90,16 +90,11 @@ When the scripts finish, please upload the folder to the workspace provided by t
 | Microsoft-Windows-WebApplicationProxy-Admin.evtx | WAP Admin Event logs* |
 | System.evtx | System Event logs |
 | Hostname-<ADFSBackEnd/ADFSProxy>-perf_<datetime>.blg | Performance Counter informations for the duration of a trace.  |
-| Hostname-certutil-v-store-ca.txt | enumeration of the Intermediate Authentication Certificate Store of the computer in verbose  |
-| Hostname-certutil-v-store-my.txt | enumeration of the Personal CertificateStore of the computer in Verbose |
-| Hostname-certutil-v-store-root.txt | enumeration of the Root CA CertificateStore of the computer in Verbose |
-| Hostname-certutil-verifystore-AdfsTrustedDevices-AFTER.txt | enumeration of the ADFSTrustedDevices Store of the computer collected after a trace |
-| Hostname-certutil-verifystore-AdfsTrustedDevices-BEFORE.txt | enumeration of the ADFSTrustedDevices Store of the computer collected after a trace |
-| Hostname-certutil-verifystore-ca.txt | simple enumeration of the Intermediate Authentication Certificate Store of the computer |
-| Hostname-certutil-verifystore-my.txt | simple enumeration of the Personal CertificateStore of the computer |
-| Hostname-certutil-verifystore-root.txt | simple enumeration of the Root CA CertificateStore of the computer in Verbose |
-| Hostname-certutil-urlcache.txt | output of the Crypto API URLCache of the Admin account |
-| Hostname-certutil-v-store-enterprise-ntauth.txt | output of AD NTAUTH Certificate Store |
+| Hostname-Certificates-CA.txt | enumeration of the Intermediate Authentication Certificate Store of the computer  |
+| Hostname-Certificates-My.txt | enumeration of the Personal CertificateStore of the computer  |
+| Hostname-Certificates-Root.txt | enumeration of the Root CA CertificateStore of the computer  |
+| Hostname-Certificates-NTAuth.txt | enumeration of the NTAuth Store of the computer |
+| Hostname-Certificates-ADFSTrustedDevices.txt | enumeration of the ADFSTrustedDevices Store of the computer collected after a trace |
 | Hostname-environment-variables-AFTER.txt | Current System Environment Variables registered |
 | Hostname-GPReport.html | Group Policies applied to the user running script and the Computer |
 | Hostname-hosts.txt | list Hostfile entries |
