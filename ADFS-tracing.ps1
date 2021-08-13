@@ -86,7 +86,6 @@ $DisablePerfCountADFS = 'Logman.exe stop ADFSBackEnd'
 $RemovePerfCountADFS = 'Logman.exe delete ADFSBackEnd'
 
 $others = 'nltest /dsgetdc:%USERDNSDOMAIN% > %COMPUTERNAME%-nltest-dsgetdc-USERDNSDOMAIN-BEFORE.txt',`
-'certutil -verifystore AdfsTrustedDevices > %COMPUTERNAME%-certutil-verifystore-AdfsTrustedDevices-BEFORE.txt',`
 'ipconfig /flushdns'
 
 #Collection for Additional Files
