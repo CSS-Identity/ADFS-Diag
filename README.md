@@ -90,6 +90,7 @@ When the scripts finish, please upload the folder to the workspace provided by t
 | Microsoft-Windows-WebApplicationProxy-Admin.evtx | WAP Admin Event logs* |
 | System.evtx | System Event logs |
 | Hostname-<ADFSBackEnd/ADFSProxy>-perf_<datetime>.blg | Performance Counter informations for the duration of a trace.  |
+| Hostname-ADFS-fileversions.txt | readout of the ADFS binary file versions currently installed  |
 | Hostname-Certificates-CA.txt | enumeration of the Intermediate Authentication Certificate Store of the computer  |
 | Hostname-Certificates-My.txt | enumeration of the Personal CertificateStore of the computer  |
 | Hostname-Certificates-Root.txt | enumeration of the Root CA CertificateStore of the computer  |
@@ -102,6 +103,7 @@ When the scripts finish, please upload the folder to the workspace provided by t
 | Hostname-Microsoft.IdentityServer.ServiceHost.Exe.Config | ADFS Service Configuration file |
 | Hostname-msinfo32-AFTER.nfo | MSINFO containing various informations about the OS configuration and installed modules/dlls |
 | Hostname-netsh-dnsclient-show-state-AFTER.txt | informations about DNSSEC and DirectAccess configuration  |
+| Hostname-DNSClient-Cache.txt | DNS CLient cache entries for DNS resolved resource |
 | Hostname-netsh-http-show-cacheparam.txt | contains http configuration for caching |
 | Hostname-netsh-http-show-cachestate.txt | contains http caching status |
 | Hostname-netsh-http-show-iplisten.txt | contains http ip listeners if configured  |
@@ -115,7 +117,7 @@ When the scripts finish, please upload the folder to the workspace provided by t
 | Hostname-netsh-int-ipv6-show-dynamicport-tcp.txt | IPv6 TCP Port range definition |
 | Hostname-netsh-int-ipv6-show-dynamicport-udp.txt | IPv6 TCP Port range definition  |
 | Hostname-netsh-winhttp-proxy.txt | output of System Proxy configuration |
-| Hostname-netstat-nao-AFTER.txt | contains a list of currently established network connections  |
+| Hostname-NetTCPConnection.txt | contains a list of currently established network connections  |
 | Hostname-network.cab | supplemental file created as part of a network trace |
 | Hostname-network.etl | contains a network trace collected during a trace session  |
 | Hostname-nltest-dsgetdc-USERDNSDOMAIN-AFTER.txt  | output of a domain controller location query  |

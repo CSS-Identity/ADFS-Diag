@@ -35,11 +35,11 @@ $DbgLvl = 5
 #Import Modules
 import-Module $PSScriptRoot\helpermodules\proxysettings.psm1 -Verbose
 import-Module $PSScriptRoot\helpermodules\certificates.psm1 -Verbose
+import-Module $PSScriptRoot\helpermodules\getconfigfromdb.psm1 -Verbose
 if($PSVersionTable.PSVersion -le [Version]'4.0')
 {Import-Module $PSScriptRoot\helpermodules\krbtype_enum_v4.psm1 -Verbose} else {Import-Module $PSScriptRoot\helpermodules\krbtype_enum_v5.psm1 -Verbose}
 if ($WinVer -ge [Version]"10.0.14393")
-{import-Module $PSScriptRoot\helpermodules\getconfigfromdb.psm1 -Verbose;import-Module $PSScriptRoot\helpermodules\getazuremfaconfig.psm1 -Verbose}
-
+{import-Module $PSScriptRoot\helpermodules\getazuremfaconfig.psm1 -Verbose}
 #Definition Netlogon Debug Logging
 $setDBFlag = 'DBFlag'
 $setvaltype = [Microsoft.Win32.RegistryValueKind]::String
@@ -91,14 +91,9 @@ $others = 'nltest /dsgetdc:%USERDNSDOMAIN% > %COMPUTERNAME%-nltest-dsgetdc-USERD
 #Collection for Additional Files
 $Filescollector = 'copy /y %windir%\debug\netlogon.*  ',`
 'ipconfig /all > %COMPUTERNAME%-ipconfig-all-AFTER.txt',`
-'netstat -nao > %COMPUTERNAME%-netstat-nao-AFTER.txt',`
-'copy %WINDIR%\system32\drivers\etc\hosts %COMPUTERNAME%-hosts.txt',`
 'netsh dnsclient show state > %COMPUTERNAME%-netsh-dnsclient-show-state-AFTER.txt',`
-'set > %COMPUTERNAME%-environment-variables-AFTER.txt',`
 'route print > %COMPUTERNAME%-route-print-AFTER.txt',`
 'netsh advfirewall show global > %COMPUTERNAME%-netsh-int-advf-show-global.txt',`
-'powershell -command "& {get-service |ft DisplayName,Status,StartType -autosize | out-file %COMPUTERNAME%-services-running-AFTER.txt}"',`
-'powershell -command "& {get-process |Sort-Object Id |ft Name,Id, SessionId,WorkingSet -AutoSize |out-file %COMPUTERNAME%-tasklist-AFTER.txt}"',`
 'if defined USERDNSDOMAIN (nslookup %USERDNSDOMAIN% > %COMPUTERNAME%-nslookup-USERDNSDOMAIN-AFTER.txt)',`
 'nltest /dsgetdc:%USERDNSDOMAIN% > %COMPUTERNAME%-nltest-dsgetdc-USERDNSDOMAIN-AFTER.txt',`
 'netsh int ipv4 show dynamicport tcp > %COMPUTERNAME%-netsh-int-ipv4-show-dynamicport-tcp.txt',`
@@ -275,17 +270,19 @@ $FormsCOmpleted = $Form.ShowDialog()
 
 if ($FormsCOmpleted -eq [System.Windows.Forms.DialogResult]::OK)
     {
-        New-Object psobject -Property @{
+       return New-Object psobject -Property @{
             Path    = $TargetFolder.text
             TraceEnabled = $TracingMode.Checked
             NetTraceEnabled = $NetTrace.Checked
             ConfigOnly = $cfgonly.Checked
             PerfCounter =$perfc.Checked
         }
+        $Form.dispose()
     }
 elseif($FormsCOmpleted -eq [System.Windows.Forms.DialogResult]::Cancel)
     {
     Write-host "Script was canceled by User" -ForegroundColor Red
+    $Form.dispose()
     exit
     }
 }
@@ -506,18 +503,25 @@ Param(
 
 Function GatherTheRest
 {
+    Push-Location $TraceDir
     ForEach ($logfile in $Filescollector)
     {
-		Push-Location $TraceDir
 		cmd.exe /c $logfile | out-null
-        GetProxySettings | out-file  $env:COMPUTERNAME-ProxySettings.txt
-        Get-LocalMachineCerts| out-file  $env:COMPUTERNAME-Certificates-My.txt
-        Get-RootCACertificates| out-file  $env:COMPUTERNAME-Certificates-Root.txt
-        Get-IntermediateCACertificates| out-file  $env:COMPUTERNAME-Certificates-CA.txt
-        Get-NTauthCertificates| out-file  $env:COMPUTERNAME-Certificates-NTAuth.txt
-        Get-ADFSTrustedDevicesCertificates| out-file  $env:COMPUTERNAME-Certificates-ADFSTrustedDevices.txt
-		Pop-Location
     }
+    GetProxySettings | out-file  $env:COMPUTERNAME-ProxySettings.txt
+    Get-LocalMachineCerts| out-file  $env:COMPUTERNAME-Certificates-My.txt
+    Get-RootCACertificates| out-file  $env:COMPUTERNAME-Certificates-Root.txt
+    Get-IntermediateCACertificates| out-file  $env:COMPUTERNAME-Certificates-CA.txt
+    Get-NTauthCertificates| out-file  $env:COMPUTERNAME-Certificates-NTAuth.txt
+    Get-ADFSTrustedDevicesCertificates| out-file  $env:COMPUTERNAME-Certificates-ADFSTrustedDevices.txt
+    Get-DnsClientCache |Sort-Object -Property Entry |fl |Out-File $env:COMPUTERNAME-DNSClient-Cache.txt
+    Get-ChildItem env: |ft Key,Value -Wrap |Out-File $env:COMPUTERNAME-environment-variables.txt
+    Get-NetTCPConnection|Sort-Object -Property LocalAddress |out-file $env:COMPUTERNAME-NetTCPConnection.txt
+    get-service|Sort-Object -Property Status -Descending |ft DisplayName,Status,StartType -autosize | out-file $env:COMPUTERNAME-services-running-AFTER.txt
+    get-process |Sort-Object Id |ft Name,Id, SessionId,WorkingSet -AutoSize |out-file $env:COMPUTERNAME-tasklist-AFTER.txt
+    Get-Content $env:windir\system32\drivers\etc\hosts |out-file $env:COMPUTERNAME-hosts.txt
+    ((get-childitem c:\windows\adfs\* -include *.dll,*.exe).VersionInfo |Sort-Object -Property FileVersion |ft FileName, FileVersion) |out-file $env:COMPUTERNAME-ADFS-fileversions.txt
+    Pop-Location
 }
 
 Function EnablePerfCounter
@@ -646,7 +650,7 @@ else
 "`nChecking for Duplicate SPNs( current ServiceAccount will be included in this check):`n" |out-file Get-ServicePrincipalNames.txt -Append
 
     $conn= (New-Object System.DirectoryServices.DirectoryEntry("GC://$domain/RootDSE")).dnshostname
-    $filter= "(serviceprincipalname="+('*/'+(get-adfsproperties).hostname)+")"
+    $filter= "(serviceprincipalname="+('*/'+(get-servicesettingsfromdb).ServiceSettingsData.SecurityTokenService.Host.Name)+")"
     [string]$att = "*"
     $re= LDAPQuery -filter $filter -att $att -conn $conn
 if($re.GetType().Name -eq 'SearchResponse')
@@ -679,15 +683,18 @@ Function GetADFSConfig
 	    }
     }
     else # Is ADFS server
- {
-	    # Common ADFS commands to all versions
-	    Get-AdfsAttributeStore | format-list * | Out-file "Get-AdfsAttributeStore.txt"
+    {
+	    # Common ADFS commands to all version
+        if((Get-AdfsSyncProperties).Role -eq 'PrimaryComputer')
+        {
+        Get-AdfsAttributeStore | format-list * | Out-file "Get-AdfsAttributeStore.txt"
 	    Get-AdfsCertificate | format-list * | Out-file "Get-AdfsCertificate.txt"
 	    Get-AdfsClaimDescription | format-list * | Out-file "Get-AdfsClaimDescription.txt"
 	    Get-AdfsClaimsProviderTrust | format-list * | Out-file "Get-AdfsClaimsProviderTrust.txt"
 	    Get-AdfsEndpoint | format-list * | Out-file "Get-AdfsEndpoint.txt"
 	    Get-AdfsProperties | format-list * | Out-file "Get-AdfsProperties.txt"
 	    Get-AdfsRelyingPartyTrust | format-list * | Out-file "Get-AdfsRelyingPartyTrust.txt"
+        }
 	    Get-AdfsSyncProperties | format-list * | Out-file "Get-AdfsSyncProperties.txt"
 	    Get-AdfsSslCertificate | format-list * | Out-file "Get-AdfsSslCertificate.txt"
         getServiceAccountDetails
@@ -695,6 +702,8 @@ Function GetADFSConfig
 
 	if ($WinVer -ge [Version]"10.0.14393") # ADFS commands specific to ADFS 2016 and common in 2019
 	    {
+        if((Get-AdfsSyncProperties).Role -eq 'PrimaryComputer')
+        {
         (Get-AdfsProperties).WiasupportedUseragents | Out-file -Append "Get-AdfsProperties.txt"
 		Get-AdfsAccessControlPolicy | format-list * | Out-file "Get-AdfsAccessControlPolicy.txt"
 		Get-AdfsApplicationGroup | format-list * | Out-file "Get-AdfsApplicationGroup.txt"
@@ -719,10 +728,10 @@ Function GetADFSConfig
 		Get-AdfsGlobalWebContent | format-list * | Out-file "Get-AdfsGlobalWebContent.txt"
 		Get-AdfsNonClaimsAwareRelyingPartyTrust | format-list * | Out-file "Get-AdfsNonClaimsAwareRelyingPartyTrust.txt"
 		Get-AdfsRelyingPartyWebContent | format-list * | Out-file "Get-AdfsRelyingPartyWebContent.txt"
-		Get-AdfsSslCertificate | format-list * | Out-file "Get-AdfsSslCertificate.txt"
 		Get-AdfsWebApplicationProxyRelyingPartyTrust | format-list * | Out-file "Get-AdfsWebApplicationProxyRelyingPartyTrust.txt"
 		Get-AdfsWebConfig | format-list * | Out-file "Get-AdfsWebConfig.txt"
 		Get-AdfsWebTheme | format-list * | Out-file "Get-AdfsWebTheme.txt"
+        }
 		$svccfg = 'copy %WINDIR%\ADFS\Microsoft.IdentityServer.ServiceHost.Exe.Config %COMPUTERNAME%-Microsoft.IdentityServer.ServiceHost.Exe.Config'
         cmd.exe /c $svccfg |Out-Null
         Get-ADFSAzureMfaAdapterconfig |fl | Out-file "Get-ADFSAzureMfaAdapterconfig.txt"
@@ -730,7 +739,10 @@ Function GetADFSConfig
         ##comming soon: WHFB Cert Trust Informations
         if ($WinVer -ge [Version]"10.0.17763") #ADFS command specific to ADFS 2019+
         {
+        if((Get-AdfsSyncProperties).Role -eq 'PrimaryComputer')
+        {
         Get-AdfsDirectoryProperties | format-list * | Out-file "Get-AdfsDirectoryProperties.txt"
+        }
         }
 
 		}

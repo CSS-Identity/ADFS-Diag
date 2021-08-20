@@ -9,7 +9,6 @@ Get-ChildItem -Path Cert:\LocalMachine\My -recurse `
     $obj |Add-Member -MemberType NoteProperty -Name "Issuer" -Value $_.Issuer
     $obj |Add-Member -MemberType NoteProperty -Name "FriendlyName" -Value $_.FriendlyName
     $obj |Add-Member -MemberType NoteProperty -Name "Subject" -Value $_.Subject
-    $obj |Add-Member -MemberType NoteProperty -Name "SubjectAlternateNames" -Value $_.DnsNameList
     $obj |Add-Member -MemberType NoteProperty -Name "NotAfter" -Value $_.NotAfter
     $obj |Add-Member -MemberType NoteProperty -Name "NotBefore" -Value $_.NotBefore
     $obj |Add-Member -MemberType NoteProperty -Name "SerialNumber" -Value $_.SerialNumber
@@ -49,12 +48,10 @@ Get-ChildItem -Path Cert:\LocalMachine\Root -recurse `
     $obj |Add-Member -MemberType NoteProperty -Name "FriendlyName" -Value $_.FriendlyName
     $obj |Add-Member -MemberType NoteProperty -Name "Issuer" -Value $_.Issuer
     $obj |Add-Member -MemberType NoteProperty -Name "Subject" -Value $_.Subject
-    $obj |Add-Member -MemberType NoteProperty -Name "SubjectAlternateNames" -Value $_.DnsNameList
     $obj |Add-Member -MemberType NoteProperty -Name "NotAfter" -Value $_.NotAfter
     $obj |Add-Member -MemberType NoteProperty -Name "NotBefore" -Value $_.NotBefore
     $obj |Add-Member -MemberType NoteProperty -Name "SerialNumber" -Value $_.SerialNumber
     $obj |Add-Member -MemberType NoteProperty -Name "ThumbPrint" -Value $_.Thumbprint
-
     if($_.subject -ne $_.issuer) {$obj |Add-Member -MemberType NoteProperty -Name "IsRoot" -Value 'Non-Root'}
     else{$obj |Add-Member -MemberType NoteProperty -Name "IsRoot" -Value 'Root'}
 
@@ -70,9 +67,7 @@ Get-ChildItem -Path Cert:\LocalMachine\Root -recurse `
     $certs += $obj
     $obj = $null
     $keyspec = $null
-
     })
-
     return $certs
  }
 
@@ -86,7 +81,6 @@ Get-ChildItem -Path Cert:\LocalMachine\CA -recurse `
     $obj |Add-Member -MemberType NoteProperty -Name "FriendlyName" -Value $_.PSPath
     $obj |Add-Member -MemberType NoteProperty -Name "Issuer" -Value $_.Issuer
     $obj |Add-Member -MemberType NoteProperty -Name "Subject" -Value $_.Subject
-    $obj |Add-Member -MemberType NoteProperty -Name "SubjectAlternateNames" -Value $_.DnsNameList
     $obj |Add-Member -MemberType NoteProperty -Name "NotAfter" -Value $_.NotAfter
     $obj |Add-Member -MemberType NoteProperty -Name "NotBefore" -Value $_.NotBefore
     $obj |Add-Member -MemberType NoteProperty -Name "SerialNumber" -Value $_.SerialNumber
@@ -121,7 +115,6 @@ Get-ItemProperty HKLM:\SOFTWARE\Microsoft\EnterpriseCertificates\NTAuth\Certific
     $obj = New-Object -TypeName PSObject
     $obj |Add-Member -MemberType NoteProperty -Name "Issuer" -Value $_.Issuer
     $obj |Add-Member -MemberType NoteProperty -Name "Subject" -Value $_.Subject
-    $obj |Add-Member -MemberType NoteProperty -Name "SubjectAlternateNames" -Value $_.DnsNameList
     $obj |Add-Member -MemberType NoteProperty -Name "NotAfter" -Value $_.NotAfter
     $obj |Add-Member -MemberType NoteProperty -Name "NotBefore" -Value $_.NotBefore
     $obj |Add-Member -MemberType NoteProperty -Name "SerialNumber" -Value $_.SerialNumber
@@ -148,7 +141,6 @@ Get-ItemProperty HKLM:\SOFTWARE\Microsoft\SystemCertificates\AdfsTrustedDevices\
     $obj = New-Object -TypeName PSObject
     $obj |Add-Member -MemberType NoteProperty -Name "Issuer" -Value $_.Issuer
     $obj |Add-Member -MemberType NoteProperty -Name "Subject" -Value $_.Subject
-    $obj |Add-Member -MemberType NoteProperty -Name "SubjectAlternateNames" -Value $_.DnsNameList
     $obj |Add-Member -MemberType NoteProperty -Name "NotAfter" -Value $_.NotAfter
     $obj |Add-Member -MemberType NoteProperty -Name "NotBefore" -Value $_.NotBefore
     $obj |Add-Member -MemberType NoteProperty -Name "SerialNumber" -Value $_.SerialNumber
