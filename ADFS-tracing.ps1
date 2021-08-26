@@ -30,16 +30,15 @@ $WAPDebugEvents  = "Microsoft-Windows-CAPI2/Operational","AD FS Tracing/Debug","
 
 $ADFSExportEvents = 'System','Application','Security','AD FS Tracing/Debug','AD FS/Admin','Microsoft-Windows-CAPI2/Operational','Device Registration Service Tracing/Debug','DRS/Admin'
 $WAPExportEvents  = 'System','Application','Security','AD FS Tracing/Debug','AD FS/Admin','Microsoft-Windows-CAPI2/Operational','Microsoft-Windows-WebApplicationProxy/Admin','Microsoft-Windows-WebApplicationProxy/Session'
-$DbgLvl = 5
 
 #Import Modules
-import-Module $PSScriptRoot\helpermodules\proxysettings.psm1 -Verbose
-import-Module $PSScriptRoot\helpermodules\certificates.psm1 -Verbose
-import-Module $PSScriptRoot\helpermodules\getconfigfromdb.psm1 -Verbose
+import-Module $PSScriptRoot\helpermodules\proxysettings.psm1
+import-Module $PSScriptRoot\helpermodules\certificates.psm1
+import-Module $PSScriptRoot\helpermodules\getconfigfromdb.psm1
 if($PSVersionTable.PSVersion -le [Version]'4.0')
-{Import-Module $PSScriptRoot\helpermodules\krbtype_enum_v4.psm1 -Verbose} else {Import-Module $PSScriptRoot\helpermodules\krbtype_enum_v5.psm1 -Verbose}
+{Import-Module $PSScriptRoot\helpermodules\krbtype_enum_v4.psm1} else {Import-Module $PSScriptRoot\helpermodules\krbtype_enum_v5.psm1}
 if ($WinVer -ge [Version]"10.0.14393")
-{import-Module $PSScriptRoot\helpermodules\getazuremfaconfig.psm1 -Verbose}
+{import-Module $PSScriptRoot\helpermodules\getazuremfaconfig.psm1}
 #Definition Netlogon Debug Logging
 $setDBFlag = 'DBFlag'
 $setvaltype = [Microsoft.Win32.RegistryValueKind]::String
@@ -293,14 +292,12 @@ Function Pause { param([String]$Message,[String]$MessageTitle,[String]$MessageC)
    If ($psISE) {
       # Show MessageBox UI instead
       $Shell = New-Object -ComObject "WScript.Shell"
-      $Button = $Shell.Popup($Message, 0, $MessageTitle, 0)
+      $Shell.Popup($Message, 0, $MessageTitle, 0)|Out-Null
       Return
    }
    #If not ISE we prompt for key stroke
-   Write-Host -NoNewline $MessageC -ForegroundColor Yellow
-   While ($KeyInfo.VirtualKeyCode -Eq $Null -Or $Ignore -Contains $KeyInfo.VirtualKeyCode) {
-      $KeyInfo = $Host.UI.RawUI.ReadKey("NoEcho, IncludeKeyDown")
-   }
+    Write-Host -NoNewline $MessageC -ForegroundColor Yellow
+    do {$keyInfo = [Console]::ReadKey($false)} until ($keyInfo.Key -eq 'Y' -and $keyInfo.Modifiers -eq 'Control')
 }
 
 ##########################################################################
@@ -904,7 +901,7 @@ if ($TraceEnabled)
 {
 $MessageTitle = "Initialization completed`n"
 $MessageIse = "Data Collection is ready to start.`nPrepare other computers to start collecting data.`n`nWhen ready, Click OK to start the collection...`n"
-$MessageC = "`nData Collection is ready to start.`nPrepare other computers to start collecting data.`n`nWhen ready, press any key to start the collection...`n"
+$MessageC = "`nData Collection is ready to start.`nPrepare other computers to start collecting data.`n`nWhen ready, press CTRL+Y to start the collection...`n"
 Pause $MessageIse $MessageTitle $MessageC
 }
 
@@ -934,7 +931,7 @@ if($TraceEnabled)
 Write-Progress -Activity "Ready for Repro" -Status 'Waiting for Repro' -percentcomplete 50
 $MessageTitle = "Data Collection Running"
 $MessageIse = "Data Collection is currently running`nProceed  reproducing the problem now or`n`nPress OK to stop the collection...`n"
-$MessageC = "Data Collection is currently running`nProceed  reproducing the problem now or `n`nPress any key to stop the collection...`n"
+$MessageC = "Data Collection is currently running`nProceed  reproducing the problem now or `n`nPress press CTRL+Y to stop the collection...`n"
 Pause $MessageIse $MessageTitle $MessageC
 }
 

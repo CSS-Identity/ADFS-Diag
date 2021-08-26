@@ -30,7 +30,7 @@ Once the tracing has completed, the script will automatically generate a archive
 
 Download the zip file via the green "code" button and extract the Zip file to a location on the servers you want to trace.
 
-You can run the script from Powershell ISE or from Powershell Console but we strongly recommend using the Powershell Console.
+You can run the script from Powershell ISE or from Powershell Console 
 
 ##### Running the Tracing Script interactively:
 When executing the Script without any parameters the script will Render a Forms UI and providing you with the following Options:
