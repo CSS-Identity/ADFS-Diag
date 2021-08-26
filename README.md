@@ -28,9 +28,10 @@ Once the tracing has completed, the script will automatically generate a archive
   You can get the WMF from https://www.microsoft.com/en-us/download/details.aspx?id=54616
     
 
-Download the zip file via the green "code" button and extract the Zip file to a location on the servers you want to trace.
+Download the zip file via the green "code" button and extract the Zip file content to a location on the servers you want to trace.
+Ensure that you have the Scriptfile and the folder "helpermodules" in the target location prior from executing the script.
 
-You can run the script from Powershell ISE or from Powershell Console 
+It is recommended to run the script from Powershell Console.
 
 ##### Running the Tracing Script interactively:
 When executing the Script without any parameters the script will Render a Forms UI and providing you with the following Options:
@@ -57,21 +58,21 @@ The script accepts four parameters similar to the UI
 During runtime and in particular the trace scenario the script will begin pulling initial static data. 
 It will Pause the execution to give you the time to configure the other servers, if tracing on multiple machines is required.
 
-Once all servers are prepared for tracing you can resume tracing on each of the servers by following the onscreen instructions by pressing a key or  when using Powershell ISE a Dialog popup should occur. Click OK here.
+Once all servers are prepared for tracing you can resume tracing on each of the servers by following the onscreen instructions by pressing the Key combination CTRL+Y
+or should you run the script in Powershell ISE a Dialog popup should occur. Click OK here.
 
 The script will then display another message to inform you that the data collection/tracing is running.  
 At this time perform the steps to REPRODUCE THE ISSUE you want to capture.  
-//Try to reproduce the issue as fast you can to keep the size of the data as small as possible
+>Try to reproduce the issue as fast you can to keep the size of the data as small as possible
 
-Once the problem has been reproduced once again press a key or click OK in the Dialog to to stop the tracing.
+Once the problem has been reproduced you can stop the collection by pressing CTRL+Y (console) or by clicking OK (ISE)
 
 At this point it will take some time collect the remaining data and to compile the debug traces (if Tracing was enabled).  
 So **please be patient** and do not abort the script through Task Manager  
 You may also see some additional popup windows appearing. Usually they occur for the MSINFO Collection
 
 
-When the scripts finish, please upload the folder to the workspace provided by the support engineer
-
+When the scripts finished, you can upload the compressed file to the workspace provided by the support engineer.
 
 
 
