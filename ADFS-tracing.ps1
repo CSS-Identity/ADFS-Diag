@@ -68,7 +68,7 @@ $LogmanOff = 'logman stop "schannel" -ets',`
 'logman stop "dcloc" -ets'
 
 #NetworkCapture+genericInternetTraffic
-$EnableNetworkTracer = 'netsh trace start scenario=internetServer capture=yes report=no overwrite=yes maxsize=500 tracefile=.\%COMPUTERNAME%-network.etl'
+$EnableNetworkTracer = 'netsh trace start scenario=internetServer capture=yes report=disabled overwrite=yes maxsize=500 tracefile=.\%COMPUTERNAME%-network.etl'
 $DisableNetworkTracer = 'netsh trace stop'
 
 #Performance Counter
