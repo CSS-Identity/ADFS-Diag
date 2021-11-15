@@ -119,7 +119,7 @@ When the scripts finished, you can upload the compressed file to the workspace p
 | Hostname-netsh-int-ipv6-show-dynamicport-udp.txt | IPv6 TCP Port range definition  |
 | Hostname-netsh-winhttp-proxy.txt | output of System Proxy configuration |
 | Hostname-NetTCPConnection.txt | contains a list of currently established network connections  |
-| Hostname-network.cab | supplemental file created as part of a network trace |
+| <s>Hostname-network.cab</s> | netsh trace report are now disabled improving trace performance (Nov 2021)  |
 | Hostname-network.etl | contains a network trace collected during a trace session  |
 | Hostname-nltest-dsgetdc-USERDNSDOMAIN-AFTER.txt  | output of a domain controller location query  |
 | Hostname-nltest-dsgetdc-USERDNSDOMAIN-BEFORE.txt  | output of a domain controller location query |
