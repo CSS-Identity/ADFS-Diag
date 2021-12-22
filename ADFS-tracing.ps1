@@ -572,10 +572,15 @@ Function EnableNetworkTrace
 {
     if ($TraceEnabled -and $NetTraceEnabled)
     {
-            Write-host "Starting Network Trace" -ForegroundColor DarkCyan
-            Push-Location $TraceDir
-		    cmd /c $EnableNetworkTracer |Out-Null
-		    Pop-Location
+    Write-host "Starting Network Trace" -ForegroundColor DarkCyan
+    Push-Location $TraceDir
+    #workaround for trace driver initialization failure on certain intel platforms
+    $ns = 'netsh trace start capture=yes report=disabled maxsize=1 tracefile=.\%COMPUTERNAME%-network.etl overwrite=yes'
+    cmd /c $ns |Out-Null
+    cmd /c $DisableNetworkTracer |Out-Null
+    #workaround ends
+    cmd /c $EnableNetworkTracer |Out-Null
+    Pop-Location
     }
 }
 
