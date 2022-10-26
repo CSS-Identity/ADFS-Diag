@@ -8,14 +8,14 @@ function get-servicesettingsfromdb ()
     #Create SQL Connection
     $connection = new-object system.data.SqlClient.SqlConnection($stsWMIObject.ConfigurationDatabaseConnectionString);
     $connection.Open()
-  
-    $query = “SELECT * FROM IdentityServerPolicy.ServiceSettings"  
+
+    $query = "SELECT * FROM IdentityServerPolicy.ServiceSettings"  
     $sqlcmd = $connection.CreateCommand();
     $sqlcmd.CommandText = $query;
     $result = $sqlcmd.ExecuteReader();
-    $table = new-object “System.Data.DataTable”
+    $table = new-object "System.Data.DataTable"
     $table.Load($result)
     [XML]$SSD=  $table.ServiceSettingsData
     return $SSD
-    
+
 }
