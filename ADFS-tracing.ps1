@@ -32,13 +32,24 @@ $ADFSExportEvents = 'System','Application','Security','AD FS Tracing/Debug','AD 
 $WAPExportEvents  = 'System','Application','Security','AD FS Tracing/Debug','AD FS/Admin','Microsoft-Windows-CAPI2/Operational','Microsoft-Windows-WebApplicationProxy/Admin','Microsoft-Windows-WebApplicationProxy/Session'
 
 #Import Modules
-import-Module $PSScriptRoot\helpermodules\proxysettings.psm1
-import-Module $PSScriptRoot\helpermodules\certificates.psm1
-import-Module $PSScriptRoot\helpermodules\getconfigfromdb.psm1
+If ([Bool]$psISE)
+{
+    if ([string]::IsNullOrEmpty($PSScriptRoot)) {$hm = split-path ($psISE.CurrentFile.FullPath)}
+    else {$hm=$PSScriptRoot}
+}
+else
+{
+    if (![string]::IsNullOrEmpty($PSScriptRoot)){$hm=$PSScriptRoot}
+    else {$hm=$pwd.Path}
+}
+
+import-Module $hm\helpermodules\proxysettings.psm1
+import-Module $hm\helpermodules\certificates.psm1
+import-Module $hm\helpermodules\getconfigfromdb.psm1
 if($PSVersionTable.PSVersion -le [Version]'4.0')
-{Import-Module $PSScriptRoot\helpermodules\krbtype_enum_v4.psm1} else {Import-Module $PSScriptRoot\helpermodules\krbtype_enum_v5.psm1}
-if ($WinVer -ge [Version]"10.0.14393")
-{import-Module $PSScriptRoot\helpermodules\getazuremfaconfig.psm1}
+{Import-Module $hm\helpermodules\krbtype_enum_v4.psm1} else {Import-Module $hm\helpermodules\krbtype_enum_v5.psm1}
+if ($WinVer -ge [Version]"10.0.14393"){import-Module $hm\helpermodules\getazuremfaconfig.psm1}
+
 #Definition Netlogon Debug Logging
 $setDBFlag = 'DBFlag'
 $setvaltype = [Microsoft.Win32.RegistryValueKind]::String
