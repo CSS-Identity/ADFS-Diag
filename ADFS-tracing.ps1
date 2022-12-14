@@ -653,7 +653,7 @@ if($re.GetType().Name -eq 'SearchResponse')
     {
         $KRBflags = enumerateKrb $EncType
     }
-    else { $KRBflags ="`n`tmsds-supportedencryptiontypes is not configured on the service account, Service tickets would be RC4 only!`n`tFor AES Support configure the msds-supportedencryptiontypes on the ADFS Service Account with a value of either:`n`t24(decimal) == AES only `n`t or `n`t28(decimal) == AES & RC4" }
+    else { $KRBflags ="`n`No Encryptiontypes configured, DomainDefaultPolicies for Kerberos will apply; refer to https://support.microsoft.com/help/5021131 .`n`t" }
 
     "`nKerberos Encryption Types supported by Service Account: " + $KRBflags |Out-File Get-ServicePrincipalNames.txt -Append
 }
