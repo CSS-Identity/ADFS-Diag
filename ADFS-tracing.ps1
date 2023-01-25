@@ -1,7 +1,7 @@
 ############################################################################################################
 # ADFS troubleshooting - Data Collection
-# Supported versions: Windows Server 2012, Windows Server 2012 R2, Windows Server 2016 and Server 2019
-# Supported role: ADFS server, ADFS proxy server (2012) and Web Application Proxy (2012 R2 and 2016 and 2019)
+# Supported OS versions: Windows Server 2012 to Server 2022
+# Supported role: ADFS on 2012 to 2022, ADFS proxy server (2012) and Web Application Proxy (2012 R2 to 2022)
 ############################################################################################################
 
 param (
@@ -95,17 +95,15 @@ $EnablePerfCountADFS = 'Logman.exe start ADFSBackEnd'
 $DisablePerfCountADFS = 'Logman.exe stop ADFSBackEnd'
 $RemovePerfCountADFS = 'Logman.exe delete ADFSBackEnd'
 
-$others = 'nltest /dsgetdc:%USERDNSDOMAIN% > %COMPUTERNAME%-nltest-dsgetdc-USERDNSDOMAIN-BEFORE.txt',`
+$others = 'nltest /trusted_domains > %COMPUTERNAME%-nltest-trusted_domains.txt',`
 'ipconfig /flushdns'
 
 #Collection for Additional Files
 $Filescollector = 'copy /y %windir%\debug\netlogon.*  ',`
-'ipconfig /all > %COMPUTERNAME%-ipconfig-all-AFTER.txt',`
-'netsh dnsclient show state > %COMPUTERNAME%-netsh-dnsclient-show-state-AFTER.txt',`
-'route print > %COMPUTERNAME%-route-print-AFTER.txt',`
+'ipconfig /all > %COMPUTERNAME%-ipconfig-all.txt',`
+'netsh dnsclient show state > %COMPUTERNAME%-netsh-dnsclient-show-state.txt',`
+'route print > %COMPUTERNAME%-route-print.txt',`
 'netsh advfirewall show global > %COMPUTERNAME%-netsh-int-advf-show-global.txt',`
-'if defined USERDNSDOMAIN (nslookup %USERDNSDOMAIN% > %COMPUTERNAME%-nslookup-USERDNSDOMAIN-AFTER.txt)',`
-'nltest /dsgetdc:%USERDNSDOMAIN% > %COMPUTERNAME%-nltest-dsgetdc-USERDNSDOMAIN-AFTER.txt',`
 'netsh int ipv4 show dynamicport tcp > %COMPUTERNAME%-netsh-int-ipv4-show-dynamicport-tcp.txt',`
 'netsh int ipv4 show dynamicport udp > %COMPUTERNAME%-netsh-int-ipv4-show-dynamicport-udp.txt',`
 'netsh int ipv6 show dynamicport tcp > %COMPUTERNAME%-netsh-int-ipv6-show-dynamicport-tcp.txt',`
@@ -119,16 +117,39 @@ $Filescollector = 'copy /y %windir%\debug\netlogon.*  ',`
 'netsh http show urlacl > %COMPUTERNAME%-netsh-http-show-urlacl.txt',`
 'wmic qfe list full /format:htable > %COMPUTERNAME%-WindowsPatches.htm',`
 'GPResult /f /h %COMPUTERNAME%-GPReport.html',`
-'Msinfo32 /nfo %COMPUTERNAME%-msinfo32-AFTER.nfo',`
-'regedit /e %COMPUTERNAME%-reg-RPC-ports-and-general-config.txt HKEY_LOCAL_MACHINE\Software\Microsoft\Rpc',`
+'Msinfo32 /nfo %COMPUTERNAME%-msinfo32.nfo',`
 'regedit /e %COMPUTERNAME%-reg-NTDS-port-and-other-params.txt HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\NTDS\parameters',`
 'regedit /e %COMPUTERNAME%-reg-NETLOGON-port-and-other-params.txt HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\Netlogon\parameters',`
 'regedit /e %COMPUTERNAME%-reg-schannel.txt HKEY_LOCAL_MACHINE\System\CurrentControlSet\Control\SecurityProviders\SCHANNEL',`
 'regedit /e %COMPUTERNAME%-reg-Cryptography_registry.txt HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\Cryptography',`
-'regedit /e %COMPUTERNAME%-reg-schannel_NET_strong_crypto.txt HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\.NETFramework',`
-'regedit /e %COMPUTERNAME%-reg-schannel_NET_WOW_strong_crypto.txt HKEY_LOCAL_MACHINE\SOFTWARE\WOW6432Node\Microsoft\.NETFramework',`
 'regedit /e %COMPUTERNAME%-reg-ciphers_policy_registry.txt HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Cryptography\Configuration\SSL'
 
+#Enum forDotNetReleases
+#https://learn.microsoft.com/en-us/dotnet/framework/migration-guide/how-to-determine-which-versions-are-installed#version_table
+$fxversions = @{
+        ".NET Framework 4.5 (all OS)"           = 378389
+        ".NET Framework 4.5.1 (2012R2)"         = 378675
+        ".NET Framework 4.5.1 (Windows other)"  = 378758
+        ".NET Framework 4.5.2 (all OS)"         = 379893
+        ".NET Framework 4.6 (Win 10)"            = 393295
+        ".NET Framework 4.6	(other OS)"         = 393297
+        ".NET Framework 4.6.1 (Win 10 1511)"    = 394254
+        ".NET Framework 4.6.1 (all OS)"         = 394271
+        ".NET Framework 4.6.2 (RS1/2016)"       = 394802
+        ".NET Framework 4.6.2 (all OS)"         = 394806
+        ".NET Framework 4.7 (Win 10 1703/RS2)"   = 460798
+        ".NET Framework 4.7 (all OS)"           = 460805
+        ".NET Framework 4.7.1 (Win 10 1709/RS3)" = 461308
+        ".NET Framework 4.7.1 (all Other)"      = 461310
+        ".NET Framework 4.7.2 (Win10 1803)"     = 461808
+        ".NET Framework 4.7.2 (all OS)"         = 461814
+        ".NET Framework 4.8 (Win 10 19H1/19H2)"  = 528040
+        ".NET Framework 4.8 (Win 10 20H1-22H2)"  = 528372
+        ".NET Framework 4.8 (Win 11/Server22)"   = 528449
+        ".NET Framework 4.8 (other OS)"         = 528049
+        ".NET Framework 4.8.1 (Win11 2022)" = 533320
+        ".NET Framework 4.8.1 (other OS) " = 533325
+}
 #endregion
 ##########################################################################
 #region UI
@@ -246,7 +267,6 @@ $cnlbtn.location                 = New-Object System.Drawing.Point(700,540)
 $cnlbtn.Font                     = 'Arial,10'
 $cnlbtn.DialogResult              = [System.Windows.Forms.DialogResult]::Cancel
 
-
 $Form.controls.AddRange(@($Description,$TracingMode,$NetTrace,$TargetFolder,$SelFolder,$Okbtn,$cnlbtn,$cfgonly,$perfc,$label))
 
 $cfgonly.Add_CheckStateChanged({ if ($cfgonly.checked)
@@ -275,7 +295,6 @@ $SelFolder.Add_Click({
 
 
 $TargetFolder.Add_TextChanged({ ($Okbtn.Enabled = $true) })
-
 $FormsCOmpleted = $Form.ShowDialog()
 
 if ($FormsCOmpleted -eq [System.Windows.Forms.DialogResult]::OK)
@@ -298,7 +317,6 @@ elseif($FormsCOmpleted -eq [System.Windows.Forms.DialogResult]::Cancel)
 }
 
 Function Pause { param([String]$Message,[String]$MessageTitle,[String]$MessageC)
-
    # "ReadKey" not supported in PowerShell ISE.
    If ($psISE) {
       # Show MessageBox UI instead
@@ -525,10 +543,11 @@ Function GatherTheRest
     Get-DnsClientCache |Sort-Object -Property Entry |fl |Out-File $env:COMPUTERNAME-DNSClient-Cache.txt
     Get-ChildItem env: |ft Key,Value -Wrap |Out-File $env:COMPUTERNAME-environment-variables.txt
     Get-NetTCPConnection|Sort-Object -Property LocalAddress |out-file $env:COMPUTERNAME-NetTCPConnection.txt
-    get-service|Sort-Object -Property Status -Descending |ft DisplayName,Status,StartType -autosize | out-file $env:COMPUTERNAME-services-running-AFTER.txt
-    get-process |Sort-Object Id |ft Name,Id, SessionId,WorkingSet -AutoSize |out-file $env:COMPUTERNAME-tasklist-AFTER.txt
+    get-service|Sort-Object -Property Status -Descending |ft DisplayName,Status,StartType -autosize | out-file $env:COMPUTERNAME-services-running.txt
+    get-process |Sort-Object Id |ft Name,Id, SessionId,WorkingSet -AutoSize |out-file $env:COMPUTERNAME-tasklist.txt
     Get-Content $env:windir\system32\drivers\etc\hosts |out-file $env:COMPUTERNAME-hosts.txt
     ((get-childitem c:\windows\adfs\* -include *.dll,*.exe).VersionInfo |Sort-Object -Property FileVersion |ft FileName, FileVersion) |out-file $env:COMPUTERNAME-ADFS-fileversions.txt
+    VerifyNetFX |fl | out-file $env:COMPUTERNAME-DotNetFramework.txt
     Pop-Location
 }
 
@@ -812,7 +831,6 @@ Function EndOfCollection
 
 Function GetDRSConfig
 {
-
     if ((-Not $IsProxy) -And ($WinVer -gt [Version]"6.2.9200"))
 	{
 		Push-Location $TraceDir
@@ -840,6 +858,50 @@ Function GetDRSConfig
 		pop-location
 	}
 }
+
+function netfxversion
+{
+        $fx=[PSCustomObject]@{};
+        $fx| Add-Member -MemberType NoteProperty -Name 'Release' -Value ((Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\NET Framework Setup\NDP\v4\Full").Release)
+        foreach ($fxver in ($fxversions.GetEnumerator() | Sort-Object -Property Value ))
+        { if (($fx.Release -eq $fxver.Value) -ne 0) { $fx | Add-Member -MemberType NoteProperty -Name 'Version' -Value ($fxver.Key.ToString()) } }
+
+        if ($fx.Release -ilt [int]394802)
+        {$fx | Add-Member -MemberType NoteProperty -Name 'Lifecyclestate' -Value 'no longer supported. Please Update to at minimum .Net 4.6.2'}
+        else
+        {$fx | Add-Member -MemberType NoteProperty -Name 'Lifecyclestate' -Value 'supported'}
+        return $fx
+}
+
+function VerifyNetFX
+{
+    $nfx = [PSCustomObject]@{}
+    $cSP = [Net.ServicePointManager]::SecurityProtocol
+    $SUSC= switch ((get-itemproperty -PATH "HKLM:\SOFTWARE\Microsoft\.NETFramework\v4.0.30319").SchUseStrongCrypto)
+    {   $null {"not configured"} 0 {" explicitly disabled by registry value (0)"} 1 {"explictly enabled by registry"}  }
+    $SDTV= switch ((get-itemproperty -PATH "HKLM:\SOFTWARE\Microsoft\.NETFramework\v4.0.30319").SystemDefaultTlsVersions)
+    {   $null {"not configured"} 0 {" explicitly disabled by registry value (0)"} 1 {"explictly enabled by registry"}  }
+
+    $fxr = netfxversion
+
+$nfx | Add-Member -MemberType NoteProperty -Name '.Net-Release' -Value ([String]::Format([CultureInfo]::InvariantCulture, "{0} {1} is {2}.", $fxr.Release,$fxr.Version,$fxr.Lifecyclestate))
+if (($cSP -split ', ' ) -contains 'TLS12' -or ($cSP -split ', ' ) -contains 'SystemDefault')
+    {
+        $nfx | Add-Member -MemberType NoteProperty -Name 'ServicePoint' -Value ("SSL/TLS Protocols available: " + $cSP)
+        $nfx | Add-Member -MemberType NoteProperty -Name 'Information' -Value ("The Script detected that StrongCrypto is enabled`neither by default (2019 or higher) or by Registry")
+        $nfx | Add-Member -MemberType NoteProperty -Name 'SchUseStrongCrypto' -Value $SUSC
+        $nfx | Add-Member -MemberType NoteProperty -Name 'SystemDefaultTlsVersions' -Value $SDTV
+    }
+else
+    {
+        $nfx | Add-Member -MemberType NoteProperty -Name 'ServicePoint' -Value ("SSL/TLS Protocols available: " + $cSP)
+        $nfx | Add-Member -MemberType NoteProperty -Name 'Critical' -Value ("Current Configuration implies TLS1.2 is NOT enabled for .Net Framework`n")
+        $nfx | Add-Member -MemberType NoteProperty -Name 'SchUseStrongCrypto' -Value $SUSC
+        $nfx | Add-Member -MemberType NoteProperty -Name 'SystemDefaultTlsVersions' -Value $SDTV
+    }
+return $nfx
+}
+
 #endregion
 ##########################################################################
 #region Execution
@@ -866,7 +928,7 @@ elseif (![string]::IsNullOrEmpty($Path))
                  {
                     C {Write-host "You selected Configuration Only, skipping Debug logging"; $TraceEnabled=$false; $ConfigOnly=$true}
                     T {Write-Host "You selected Tracing Mode, enabling additional logging"; $TraceEnabled=$true; ; $ConfigOnly=$false}
-                    Default {Write-Host "You did not selected an operationsmode. We will only collect the Configuration"; $TraceEnabled=$false; $ConfigOnly=$true}
+                    Default {Write-Host "You did not selected an operations mode. We will only collect the Configuration"; $TraceEnabled=$false; $ConfigOnly=$true}
                  }
     }
     else
@@ -885,7 +947,7 @@ elseif (![string]::IsNullOrEmpty($Path))
 
     if (($TraceEnabled -and ($PerfCounter -eq $false)))
     {
-            $PMode = Read-Host 'Collect Performance Counters (Y/N). You you do not provide a value network tracing is enabled by default'
+            $PMode = Read-Host 'Collect Performance Counters (Y/N). If You do not provide a value performance tracing is disabled by default'
             Switch ($PMode)
               {
                    Y {Write-host "Collecting Performance Counter"; $PerfCounter=$true; $ConfigOnly=$false}

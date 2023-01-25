@@ -97,13 +97,13 @@ When the scripts finished, you can upload the compressed file to the workspace p
 | Hostname-Certificates-Root.txt | enumeration of the Root CA CertificateStore of the computer  |
 | Hostname-Certificates-NTAuth.txt | enumeration of the NTAuth Store of the computer |
 | Hostname-Certificates-ADFSTrustedDevices.txt | enumeration of the ADFSTrustedDevices Store of the computer collected after a trace |
-| Hostname-environment-variables-AFTER.txt | Current System Environment Variables registered |
+| Hostname-environment-variables.txt | Current System Environment Variables registered |
 | Hostname-GPReport.html | Group Policies applied to the user running script and the Computer |
 | Hostname-hosts.txt | list Hostfile entries |
-| Hostname-ipconfig-all-AFTER.txt | contains TCP/IP  configuration of the network adapters  |
+| Hostname-ipconfig-all.txt | contains TCP/IP  configuration of the network adapters  |
 | Hostname-Microsoft.IdentityServer.ServiceHost.Exe.Config | ADFS Service Configuration file |
-| Hostname-msinfo32-AFTER.nfo | MSINFO containing various informations about the OS configuration and installed modules/dlls |
-| Hostname-netsh-dnsclient-show-state-AFTER.txt | informations about DNSSEC and DirectAccess configuration  |
+| Hostname-msinfo32.nfo | MSINFO containing various informations about the OS configuration and installed modules/dlls |
+| Hostname-netsh-dnsclient-show-state.txt | informations about DNSSEC and DirectAccess configuration  |
 | Hostname-DNSClient-Cache.txt | DNS CLient cache entries for DNS resolved resource |
 | Hostname-netsh-http-show-cacheparam.txt | contains http configuration for caching |
 | Hostname-netsh-http-show-cachestate.txt | contains http caching status |
@@ -119,24 +119,23 @@ When the scripts finished, you can upload the compressed file to the workspace p
 | Hostname-netsh-int-ipv6-show-dynamicport-udp.txt | IPv6 TCP Port range definition  |
 | Hostname-netsh-winhttp-proxy.txt | output of System Proxy configuration |
 | Hostname-NetTCPConnection.txt | contains a list of currently established network connections  |
-| <s>Hostname-network.cab</s> | netsh trace report are now disabled improving trace performance (Nov 2021)  |
 | Hostname-network.etl | contains a network trace collected during a trace session  |
-| Hostname-nltest-dsgetdc-USERDNSDOMAIN-AFTER.txt  | output of a domain controller location query  |
-| Hostname-nltest-dsgetdc-USERDNSDOMAIN-BEFORE.txt  | output of a domain controller location query |
-| Hostname-nslookup-USERDNSDOMAIN-AFTER.txt | will be deprecated ; contains name resolution of the logged on users domain  |
+| Hostname-nltest-trusted_domains.txt  | list of trusted domains the adfs domain trusts |
 | Hostname-reg-ciphers_policy_registry.txt | TLS Cipher Configuration deployed via GPOs |
 | Hostname-reg-Cryptography_registry.txt | registry export of the TLS/SSL Cryptography config |
 | Hostname-reg-NETLOGON-port-and-other-params.txt | export of the netlogon service registry settings  |
 | Hostname-reg-NTDS-port-and-other-params.txt | an registry export of NTDS settings properties |
-| Hostname-reg-RPC-ports-and-general-config.txt | export of the RPC Client registry config |
 | Hostname-reg-schannel.txt | SCHannel configuration parameters; related to TLS/SSL configuration |
-| Hostname-reg-schannel_NET_strong_crypto.txt | .NetFramework configuration settings  |
-| Hostname-reg-schannel_NET_WOW_strong_crypto.txt | .NetFramework configuration settings |
-| Hostname-route-print-AFTER.txt | ip routing configuration of the local machine  |
-| Hostname-services-running-AFTER.txt | a list of all currently running services |
-| Hostname-tasklist-AFTER.txt | a list of all running tasks  |
+| Hostname-DotNetFramework.txt | .NetFramework version and TLS protocol support  |
+| Hostname-route-print.txt | ip routing configuration of the local machine  |
+| Hostname-services-running.txt | a list of all currently running services |
+| Hostname-tasklist.txt | a list of all running tasks  |
 | Hostname-WindowsPatches.htm | contains informations about installed Windows Updates |
 | dcloc_krb_ntlmauth.etl | contains kerberos and NTLM debug traces in a binary format |
+| http_trace.etl | http driver trace in binary format |
+| schannel.etl | schannel (TLS/SSL provider) debug file in a binary format |
+| netlogon.bak | netlogon debug log backup file (usually created if the log file itself exceeds 100mb during a longer tracing period |
+| netlogon.log | netlogon debug log informations |
 | Get-AdfsAccessControlPolicy.txt | contains list of all Access Control Policies currently defined in ADFS |
 | Get-AdfsAdditionalAuthenticationRule.txt | Contains details of global MFA claim Rules if configured |
 | Get-AdfsApplicationGroup.txt | summary of configured OAUTH2/OpenID application groups |
@@ -177,10 +176,6 @@ When the scripts finished, you can upload the compressed file to the workspace p
 | Get-AdfsWebConfig.txt | shows currently active default web theme and cookie settings for HomeRealmDiscovery automation |
 | Get-AdfsWebTheme.txt | a list of configured ADFS Web Themes |
 | Get-ServicePrincipalNames.txt | Contains details about the ADFS Service Account configuration in AD DS |
-| http_trace.etl | http driver trace in binary format |
-| netlogon.bak | netlogon debug log backup file (usually created if the log file itself exceeds 100mb during a longer tracing period |
-| netlogon.log | netlogon debug log informations |
-| schannel.etl | schannel (TLS/SSL provider) debug file in a binary format |
 | Get-WebApplicationProxyApplication.txt | Lists the published applications |
 | Get-WebApplicationProxyAvailableADFSRelyingParty.txt | list of available relying parties configured on a federation server|
 | Get-WebApplicationProxyConfiguration.txt | Global Web Application Proxy settings |
