@@ -49,11 +49,11 @@ When executing the Script without any parameters the script will Render a Forms 
 The script accepts four parameters similar to the UI
 | Options | Value/Description
 | :-------- | :--------- |
-| -Path | The absolute path to the folder where the files should be stored. If the parameter is omitted the script will automatically run in interactive mode ignoring the other parameters |
-| -TraceEnabled | $true/$false; if omitted the script will prompt you if a network trace should be captured |
-| -NetTraceEnabled | $true/$false; if omitted the script will prompt you if a network trace should be captured |
-| -PerfCounter | $true/$false; if omitted the script will prompt you if performance counters should be captured |
-
+| -Path | The absolute path to the folder where the files should be stored. If the parameter is omitted the script will automatically run in interactive mode ignoring other switch parameters |
+| -Tracing |  if omitted the script will run in a config only mode ignoring any one of the optional trace switches |
+| -NetworkTracing | set this switch to enable network tracing; this only works if -Tracing is provided |
+| -PerfTracing | set this switch to enable performance counter collection; this only works if -Tracing is provided |
+| -LDAPTracing | set this switch to enable LDAP debug tracing; this only works if -Tracing is provided|
 
 During runtime and in particular the trace scenario the script will begin pulling initial static data.
 It will Pause the execution to give you the time to configure the other servers, if tracing on multiple machines is required.
@@ -69,7 +69,7 @@ Once the problem has been reproduced you can stop the collection by pressing CTR
 
 At this point it will take some time collect the remaining data and to compile the debug traces (if Tracing was enabled).  
 So **please be patient** and do not abort the script through Task Manager  
-You may also see some additional popup windows appearing. Usually they occur for the MSINFO Collection
+
 
 
 When the scripts finished, you can upload the compressed file to the workspace provided by the support engineer.
@@ -80,29 +80,30 @@ When the scripts finished, you can upload the compressed file to the workspace p
 
 | Filename | Description |
 | ----------- | ----------- |
-| AD FS Tracing-Debug.evtx | contains verbose diagnostics like claim processing details and/or exception details |
+| AD FS Tracing-Debug.evtx | ADFS verbose diagnostics/debug events |
 | AD FS-Admin.evtx |  ADFS Administrative logs containing high level error and informative events |
 | Application.evtx | Windows OS Application eventlogs |
 | DRS-Admin.evtx | Device Registration Service event logs  |
 | Device Registration Service Tracing-Debug.evtx | Device Registration Service diagnostic events |
-| Microsoft-Windows-CAPI2-Operational.evtx | Crypto API Events allowing to analys Certificate Validation issues |
+| Microsoft-Windows-CAPI2-Operational.evtx | Crypto API Events allowing to analyze Certificate Validation issues |
 | Security.evtx | Security Eventlogs of the Operating System. Size is limited to maximum 1hour or for the duration of a trace session |
 | Microsoft-Windows-WebApplicationProxy-Session.evtx | WAP Debug Event logs* |
 | Microsoft-Windows-WebApplicationProxy-Admin.evtx | WAP Admin Event logs* |
 | System.evtx | System Event logs |
-| Hostname-<ADFSBackEnd/ADFSProxy>-perf_<datetime>.blg | Performance Counter informations for the duration of a trace.  |
+| Hostname-<ADFSBackEnd/ADFSProxy>-perf_<datetime>.blg | Performance Counter information's for the duration of a trace.  |
 | Hostname-ADFS-fileversions.txt | readout of the ADFS binary file versions currently installed  |
 | Hostname-Certificates-CA.txt | enumeration of the Intermediate Authentication Certificate Store of the computer  |
 | Hostname-Certificates-My.txt | enumeration of the Personal CertificateStore of the computer  |
 | Hostname-Certificates-Root.txt | enumeration of the Root CA CertificateStore of the computer  |
 | Hostname-Certificates-NTAuth.txt | enumeration of the NTAuth Store of the computer |
 | Hostname-Certificates-ADFSTrustedDevices.txt | enumeration of the ADFSTrustedDevices Store of the computer collected after a trace |
+| Hostname-Certificates-CliAuthIssuer.txt | enumeration of the ClientAuthIssuers Store (only if configured CTL store on an ADFS HTTP Binding) |
 | Hostname-environment-variables.txt | Current System Environment Variables registered |
 | Hostname-GPReport.html | Group Policies applied to the user running script and the Computer |
 | Hostname-hosts.txt | list Hostfile entries |
 | Hostname-ipconfig-all.txt | contains TCP/IP  configuration of the network adapters  |
 | Hostname-Microsoft.IdentityServer.ServiceHost.Exe.Config | ADFS Service Configuration file |
-| Hostname-msinfo32.nfo | MSINFO containing various informations about the OS configuration and installed modules/dlls |
+| Hostname-sysinfo.txt | contains base informations about the system  |
 | Hostname-netsh-dnsclient-show-state.txt | informations about DNSSEC and DirectAccess configuration  |
 | Hostname-DNSClient-Cache.txt | DNS CLient cache entries for DNS resolved resource |
 | Hostname-netsh-http-show-cacheparam.txt | contains http configuration for caching |
@@ -134,8 +135,7 @@ When the scripts finished, you can upload the compressed file to the workspace p
 | dcloc_krb_ntlmauth.etl | contains kerberos and NTLM debug traces in a binary format |
 | http_trace.etl | http driver trace in binary format |
 | schannel.etl | schannel (TLS/SSL provider) debug file in a binary format |
-| netlogon.bak | netlogon debug log backup file (usually created if the log file itself exceeds 100mb during a longer tracing period |
-| netlogon.log | netlogon debug log informations |
+| ldap.etl | LDAP debug tracing file in a binary format |
 | Get-AdfsAccessControlPolicy.txt | contains list of all Access Control Policies currently defined in ADFS |
 | Get-AdfsAdditionalAuthenticationRule.txt | Contains details of global MFA claim Rules if configured |
 | Get-AdfsApplicationGroup.txt | summary of configured OAUTH2/OpenID application groups |
@@ -176,6 +176,8 @@ When the scripts finished, you can upload the compressed file to the workspace p
 | Get-AdfsWebConfig.txt | shows currently active default web theme and cookie settings for HomeRealmDiscovery automation |
 | Get-AdfsWebTheme.txt | a list of configured ADFS Web Themes |
 | Get-ServicePrincipalNames.txt | Contains details about the ADFS Service Account configuration in AD DS |
+| netlogon.bak | netlogon debug log backup file (usually created if the log file itself exceeds 100mb during a longer tracing period |
+| netlogon.log | netlogon debug log informations |
 | Get-WebApplicationProxyApplication.txt | Lists the published applications |
 | Get-WebApplicationProxyAvailableADFSRelyingParty.txt | list of available relying parties configured on a federation server|
 | Get-WebApplicationProxyConfiguration.txt | Global Web Application Proxy settings |
@@ -183,6 +185,7 @@ When the scripts finished, you can upload the compressed file to the workspace p
 | Get-WebApplicationProxySslCertificate.txt | binding information for the SSL certificate for federation server proxy |
 | HOSTNAME-Microsoft.IdentityServer.ProxyService.exe.config | Proxy Service Configuration file |
 | transscript_output.txt | diagnostics/telemetry about the execution of the script |
+| Wid \ error<int>.log | WID error logs (only collected if WID Deployments and if the cummulative size of the files is <=10mb |
 | LocaleMetaData\ AD FS Tracing-Debug_1033.MTA | ADFS Tracing eventlog in a localized format (system language) |
 | LocaleMetaData\ AD FS-Admin_1033.MTA | ADFS Admin eventlog in a localized format (system language)  |
 | LocaleMetaData\ Application_1033.MTA | Application eventlog in a localized format (system language)  |

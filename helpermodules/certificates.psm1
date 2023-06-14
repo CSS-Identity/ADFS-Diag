@@ -38,7 +38,7 @@ Get-ChildItem -Path Cert:\LocalMachine\My -recurse `
     return $certs
  }
 
- function Get-RootCACertificates
+function Get-RootCACertificates
 {
 $certs = @()
 Get-ChildItem -Path Cert:\LocalMachine\Root -recurse `
@@ -132,7 +132,7 @@ Get-ItemProperty HKLM:\SOFTWARE\Microsoft\EnterpriseCertificates\NTAuth\Certific
     return $certs
  } 
 
-    function Get-ADFSTrustedDevicesCertificates
+function Get-ADFSTrustedDevicesCertificates
 {
 $certs = @()
 Get-ItemProperty HKLM:\SOFTWARE\Microsoft\SystemCertificates\AdfsTrustedDevices\Certificates\* -name blob `
@@ -154,5 +154,30 @@ Get-ItemProperty HKLM:\SOFTWARE\Microsoft\SystemCertificates\AdfsTrustedDevices\
 
     })
 
+    return $certs
+ } 
+
+ function Get-ClientAuthIssuerCertificates
+{
+$certs = @()
+Get-ItemProperty HKLM:\SOFTWARE\Microsoft\SystemCertificates\ClientAuthIssuer\Certificates\* -name blob `
+| %{new-object System.Security.Cryptography.X509Certificates.X509Certificate2($_.Blob,$null)} `
+| foreach-object ({ `
+    $obj = New-Object -TypeName PSObject
+    $obj |Add-Member -MemberType NoteProperty -Name "Issuer" -Value $_.Issuer
+    $obj |Add-Member -MemberType NoteProperty -Name "Subject" -Value $_.Subject
+    $obj |Add-Member -MemberType NoteProperty -Name "NotAfter" -Value $_.NotAfter
+    $obj |Add-Member -MemberType NoteProperty -Name "NotBefore" -Value $_.NotBefore
+    $obj |Add-Member -MemberType NoteProperty -Name "SerialNumber" -Value $_.SerialNumber
+    $obj |Add-Member -MemberType NoteProperty -Name "ThumbPrint" -Value $_.Thumbprint
+    if($_.subject -ne $_.issuer) {$obj |Add-Member -MemberType NoteProperty -Name "IsRoot" -Value 'Non-Root'}
+    else{$obj |Add-Member -MemberType NoteProperty -Name "IsRoot" -Value 'Root'}
+    $obj |Add-Member -MemberType NoteProperty -Name "Origin" -Value 'Registry'
+    $certs += $obj
+    $obj = $null
+    $keyspec = $null
+
+    })
+    if($certs.Count -eq 0 ){$certs="ClientAuthIssuers is configured on an ADFS related binding but the Store is empty. This can break Certificate Based authentication for users"}
     return $certs
  } 

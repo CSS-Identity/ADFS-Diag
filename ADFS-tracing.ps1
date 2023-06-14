@@ -9,13 +9,16 @@ param (
     [string] $Path,
 
     [Parameter(Mandatory=$false)]
-    [bool]$TraceEnabled,
+    [switch]$Tracing,
 
     [Parameter(Mandatory=$false)]
-    [bool]$NetTraceEnabled,
+    [switch]$NetworkTracing,
 
     [Parameter(Mandatory=$false)]
-    [bool]$PerfCounter
+    [switch]$LDAPTracing,
+
+    [Parameter(Mandatory=$false)]
+    [switch]$PerfTracing
 )
 
 ##########################################################################
@@ -64,7 +67,7 @@ $setvalue2 = 0x061A8000
 $orgdbflag = (get-itemproperty -PATH "HKLM:\SYSTEM\CurrentControlSet\Services\Netlogon\Parameters").$setDBFlag
 $orgNLMaxLogSize = (get-itemproperty -PATH "HKLM:\SYSTEM\CurrentControlSet\Services\Netlogon\Parameters").$setNLMaxLogSize
 
-#ETW Trace providers
+#ETW Trace providers for SSL,kerberos,ntlm,http.sys
 $LogmanOn = 'logman.exe create trace "schannel" -ow -o .\schannel.etl -p {37D2C3CD-C5D4-4587-8531-4696C44244C8} 0xffffffffffffffff 0xff -nb 16 16 -bs 1024 -mode Circular -f bincirc -max 1024 -ets',`
 'logman create trace "dcloc" -ow -o .\dcloc_krb_ntlmauth.etl -p "Microsoft-Windows-DCLocator" 0xffffffffffffffff 0xff -nb 16 16 -bs 1024 -mode Circular -f bincirc -max 1024 -ets',`
 'logman update trace "dcloc" -p {6B510852-3583-4E2D-AFFE-A67F9F223438} 0xffffffffffffffff 0xff -ets',`
@@ -77,6 +80,12 @@ $LogmanOn = 'logman.exe create trace "schannel" -ow -o .\schannel.etl -p {37D2C3
 $LogmanOff = 'logman stop "schannel" -ets',`
 'logman stop "minio_http" -ets',`
 'logman stop "dcloc" -ets'
+
+#ldap debug traces; process filters are set in the function to enable ldap tracing
+$ldapetlOn='logman create trace "adfs_ldap" -ow -o .\ldap.etl -p "Microsoft-Windows-ADSI" 0xffffffffffffffff 0xff -nb 16 16 -bs 1024 -mode Circular -f bincirc -max 4096 -ets',`
+'logman update trace "adfs_ldap" -p "Microsoft-Windows-LDAP-Client" 0xffffffffffffffff 0xff -ets'
+
+$ldapetlOff= 'logman stop "adfs_ldap" -ets'
 
 #NetworkCapture+genericInternetTraffic
 $EnableNetworkTracer = 'netsh trace start scenario=internetServer capture=yes report=disabled overwrite=yes maxsize=500 tracefile=.\%COMPUTERNAME%-network.etl'
@@ -117,7 +126,7 @@ $Filescollector = 'copy /y %windir%\debug\netlogon.*  ',`
 'netsh http show urlacl > %COMPUTERNAME%-netsh-http-show-urlacl.txt',`
 'wmic qfe list full /format:htable > %COMPUTERNAME%-WindowsPatches.htm',`
 'GPResult /f /h %COMPUTERNAME%-GPReport.html',`
-'Msinfo32 /nfo %COMPUTERNAME%-msinfo32.nfo',`
+'systeminfo > %COMPUTERNAME%-sysinfo.txt',`
 'regedit /e %COMPUTERNAME%-reg-NTDS-port-and-other-params.txt HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\NTDS\parameters',`
 'regedit /e %COMPUTERNAME%-reg-NETLOGON-port-and-other-params.txt HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\Netlogon\parameters',`
 'regedit /e %COMPUTERNAME%-reg-schannel.txt HKEY_LOCAL_MACHINE\System\CurrentControlSet\Control\SecurityProviders\SCHANNEL',`
@@ -228,6 +237,16 @@ $perfc.height                    = 20
 $perfc.location                  = New-Object System.Drawing.Point(340,450)
 $perfc.Font                      = 'Arial,10'
 
+#Checkbox LDAP Tracing
+$ldapt                           = New-Object system.Windows.Forms.CheckBox
+$ldapt.text                      = "include LDAP Traces"
+$ldapt.AutoSize                  = $false
+$ldapt.Enabled                   = $false
+$ldapt.width                     = 260
+$ldapt.height                    = 20
+$ldapt.location                  = New-Object System.Drawing.Point(340,415)
+$ldapt.Font                      = 'Arial,10'
+
 #Text Field for the Export Path to store the results
 $label                           = New-Object System.Windows.Forms.Label
 $label.Location                  = New-Object System.Drawing.Point(15,480)
@@ -267,18 +286,18 @@ $cnlbtn.location                 = New-Object System.Drawing.Point(700,540)
 $cnlbtn.Font                     = 'Arial,10'
 $cnlbtn.DialogResult              = [System.Windows.Forms.DialogResult]::Cancel
 
-$Form.controls.AddRange(@($Description,$TracingMode,$NetTrace,$TargetFolder,$SelFolder,$Okbtn,$cnlbtn,$cfgonly,$perfc,$label))
+$Form.controls.AddRange(@($Description,$TracingMode,$NetTrace,$TargetFolder,$SelFolder,$Okbtn,$cnlbtn,$cfgonly,$perfc,$ldapt,$label))
 
 $cfgonly.Add_CheckStateChanged({ if ($cfgonly.checked)
-                                {$TracingMode.Enabled = $false; $NetTrace.Enabled = $false; $perfc.Enabled = $false}
+                                {$TracingMode.Enabled = $false; $NetTrace.Enabled = $false; $perfc.Enabled = $false; $ldapt.Enabled = $false}
                                 else
                                 {$TracingMode.Enabled = $true; $NetTrace.Enabled = $false}
                               })
 
 $TracingMode.Add_CheckStateChanged({ if ($TracingMode.checked)
-                                {$cfgonly.Enabled = $false; $NetTrace.Enabled = $true;$NetTrace.Checked = $true; $perfc.Enabled = $true}
+                                {$cfgonly.Enabled = $false; $NetTrace.Enabled = $true;$NetTrace.Checked = $true; $perfc.Enabled = $true; if(!$IsProxy){ $ldapt.Enabled=$true}}
                                 else
-                                {$cfgonly.Enabled = $true; $NetTrace.Checked = $false; $NetTrace.Enabled = $false;$perfc.Checked = $false; $perfc.Enabled = $false }
+                                {$cfgonly.Enabled = $true; $NetTrace.Checked = $false; $NetTrace.Enabled = $false;$perfc.Checked = $false; $perfc.Enabled = $false;$ldapt.Checked = $false; $ldapt.Enabled = $false;  }
                               })
 
 #For future Versions we may add addional dependencies to the Network Trace.
@@ -305,6 +324,7 @@ if ($FormsCOmpleted -eq [System.Windows.Forms.DialogResult]::OK)
             NetTraceEnabled = $NetTrace.Checked
             ConfigOnly = $cfgonly.Checked
             PerfCounter =$perfc.Checked
+            LdapTraceEnabled=$ldapt.Checked
         }
         $Form.dispose()
     }
@@ -351,6 +371,7 @@ $c = New-Object System.DirectoryServices.Protocols.LdapConnection ($conn)
 
 $c.SessionOptions.SecureSocketLayer = $false;
 $c.SessionOptions.Sealing = $true
+$c.SessionOptions.Signing = $true
 $c.AuthType = [System.DirectoryServices.Protocols.AuthType]::Kerberos
 $c.Bind();
 $c.Timeout=[timespan]::FromSeconds(45)
@@ -456,7 +477,6 @@ Function DisableNetlogonDebug
     {
         $key = (get-item -PATH "HKLM:\SYSTEM\CurrentControlSet\Services\Netlogon")
         $subkey = $key.OpenSubKey("Parameters",$true)
-
         # Configure Keys based on initial configuration; if the keys did not exist we are also removing the keys again. else we set the old value
         if ([string]::IsNullOrEmpty($orgdbflag))
 	    { $subkey.deleteValue($setDBFlag) }
@@ -527,6 +547,23 @@ Param(
     }
 }
 
+function widlogs
+{
+    $widlog="$env:windir\WID\Log"
+    $wid = $TraceDir + "\Wid"
+    #for the time being we only want to collect the error logs from wid if the cummulative size is less then 10MB
+    if ([math]::Round(((Get-ChildItem $widlog -Filter *.log)| Measure-Object -Property Length -sum).sum / 1Mb ,1) -le 10)
+    {
+    New-Item -ItemType directory -Path $wid -Force | Out-Null
+    foreach ($file in (Get-ChildItem -Path $widlog -Filter *.log) )
+        {
+        Copy-Item ($file.fullname) -Destination $wid
+        }
+    }
+
+}
+
+
 Function GatherTheRest
 {
     Push-Location $TraceDir
@@ -540,6 +577,12 @@ Function GatherTheRest
     Get-IntermediateCACertificates| out-file  $env:COMPUTERNAME-Certificates-CA.txt
     Get-NTauthCertificates| out-file  $env:COMPUTERNAME-Certificates-NTAuth.txt
     Get-ADFSTrustedDevicesCertificates| out-file  $env:COMPUTERNAME-Certificates-ADFSTrustedDevices.txt
+    if(!$IsProxy)
+    {
+    Get-Adfssslcertificate|foreach-object {if($_.CtlStoreName -eq "ClientAuthIssuer" ) {Get-ClientAuthIssuerCertificates| out-file $env:COMPUTERNAME-Certificates-CliAuthIssuer.txt }}
+    if((Get-WmiObject -Namespace root\ADFS -Class SecurityTokenService).ConfigurationDatabaseConnectionString -match "##wid" -or $ConnectionString -match "##ssee"){widlogs}
+    }
+    else{Get-WebApplicationProxySslCertificate|foreach-object {if($_.CtlStoreName -eq "ClientAuthIssuer" ){Get-ClientAuthIssuerCertificates| out-file $env:COMPUTERNAME-Certificates-CliAuthIssuer.txt}} }
     Get-DnsClientCache |Sort-Object -Property Entry |fl |Out-File $env:COMPUTERNAME-DNSClient-Cache.txt
     Get-ChildItem env: |ft Key,Value -Wrap |Out-File $env:COMPUTERNAME-environment-variables.txt
     Get-NetTCPConnection|Sort-Object -Property LocalAddress |out-file $env:COMPUTERNAME-NetTCPConnection.txt
@@ -620,6 +663,53 @@ Function DisableNetworkTrace
     {
         Write-host "Stopping Network Trace. It may take some time for the data to be flushed to disk. Please be patient`n" -ForegroundColor Yellow
         cmd /c $DisableNetworkTracer |Out-Null
+    }
+}
+
+Function EnableLDAPTrace
+{
+    if(!$IsProxy)
+    {
+        if ($TraceEnabled -and $LdapTraceEnabled)
+        {
+        Write-host "Starting LDAP Trace" -ForegroundColor DarkCyan
+        #enable per ldap tracing for: powershell/ise; wsmprovhost and the service itself
+        New-Item 'HKLM:\System\CurrentControlSet\Services\ldap\Tracing\powershell_ise.exe' -Force | Out-Null
+        New-Item 'HKLM:\System\CurrentControlSet\Services\ldap\Tracing\powershell.exe' -Force | Out-Null
+        New-Item 'HKLM:\System\CurrentControlSet\Services\ldap\Tracing\Microsoft.IdentityServer.ServiceHost.exe' -Force | Out-Null
+        New-Item 'HKLM:\System\CurrentControlSet\Services\ldap\Tracing\wsmprovhost.exe' -Force | Out-Null
+
+            ForEach ($log in $ldapetlOn)
+            {
+	    	Push-Location $TraceDir
+	    	cmd.exe /c $log |Out-Null
+	    	Pop-Location
+            }
+        }
+    }
+}
+
+Function DisableLDAPTrace
+{
+    if(!$IsProxy)
+    {
+        if($TraceEnabled -and $LdapTraceEnabled)
+        {
+            Write-Host "Stopping LDAP Tracing" -ForegroundColor DarkCyan
+            ForEach ($log in $ldapetlOff)
+            {
+	    	Push-Location $TraceDir
+	    	cmd.exe /c $log |Out-Null
+	    	Pop-Location
+            }
+    Remove-Item 'HKLM:\System\CurrentControlSet\Services\ldap\Tracing\powershell_ise.exe' -Force | Out-Null
+    Remove-Item 'HKLM:\System\CurrentControlSet\Services\ldap\Tracing\powershell.exe' -Force | Out-Null
+    Remove-Item 'HKLM:\System\CurrentControlSet\Services\ldap\Tracing\Microsoft.IdentityServer.ServiceHost.exe' -Force | Out-Null
+    Remove-Item 'HKLM:\System\CurrentControlSet\Services\ldap\Tracing\wsmprovhost.exe' -Force | Out-Null
+        }
+        else
+        { Write-host "LDAP Tracing was not enabled" -ForegroundColor DarkCyan }
+
     }
 }
 
@@ -917,44 +1007,19 @@ $TraceEnabled = $RunProp.TraceEnabled
 $NetTraceEnabled = $RunProp.NetTraceEnabled
 $ConfigOnly = $RunProp.ConfigOnly
 $PerfCounter = $RunProp.PerfCounter
+$LdapTraceEnabled= $RunProp.LdapTraceEnabled
 }
 elseif (![string]::IsNullOrEmpty($Path))
 {
-    if ($TraceEnabled -eq $false)
-    {
-        Write-host "Please Specify what data to capture"
-        $Mode = Read-Host 'For "Configuration Only" press "C" . For a "Debug Tracing" press "T"'
-        Switch ($Mode)
-                 {
-                    C {Write-host "You selected Configuration Only, skipping Debug logging"; $TraceEnabled=$false; $ConfigOnly=$true}
-                    T {Write-Host "You selected Tracing Mode, enabling additional logging"; $TraceEnabled=$true; ; $ConfigOnly=$false}
-                    Default {Write-Host "You did not selected an operations mode. We will only collect the Configuration"; $TraceEnabled=$false; $ConfigOnly=$true}
-                 }
-    }
-    else
-    { $ConfigOnly=$false }
-
-    If (($TraceEnabled -and ($NetTraceEnabled -eq $false))  )
-    {
-            $NMode = Read-Host 'Collect a Network Trace (Y/N). If you do not provide a value network tracing is enabled by default'
-            Switch ($NMode)
-               {
-                 Y {Write-host "Enabling Network Tracing"; $NetTraceEnabled=$true; $ConfigOnly=$false}
-                 N {Write-Host "Skipping Network Tracing"; $NetTraceEnabled=$false; $ConfigOnly=$false}
-                 Default {Write-Host "You provided an incorrect or no value. Enabling Network Tracing"; $NetTraceEnabled=$true; $ConfigOnly=$false}
-               }
-    }
-
-    if (($TraceEnabled -and ($PerfCounter -eq $false)))
-    {
-            $PMode = Read-Host 'Collect Performance Counters (Y/N). If You do not provide a value performance tracing is disabled by default'
-            Switch ($PMode)
-              {
-                   Y {Write-host "Collecting Performance Counter"; $PerfCounter=$true; $ConfigOnly=$false}
-                   N {Write-Host "Skipping Performance Counters"; $PerfCounter=$false; $ConfigOnly=$false}
-                   Default {Write-Host "You provided an incorrect or no value. Skipping Performance Counters"; $PerfCounter=$false; $ConfigOnly=$false}
-              }
-    }
+if($Tracing.IsPresent -eq $false){$TraceEnabled=$false;$NetTraceEnabled=$false;$PerfCounter=$false;$LdapTraceEnabled=$false;$ConfigOnly=$true}
+else
+{
+    $TraceEnabled=$true;
+    $ConfigOnly=$false;
+    if($NetworkTracing.IsPresent -eq $true){$NetTraceEnabled=$true}else{$NetTraceEnabled=$false}
+    if($PerfTracing.IsPresent -eq $true) {$PerfCounter=$true}else{$PerfCounter=$false}
+    if($LDAPTracing.IsPresent -eq $true) {if(!$IsProxy){$LdapTraceEnabled=$true}}else{$LdapTraceEnabled=$false}
+}
 }
 
 if(Test-Path -Path $Path)
@@ -972,7 +1037,7 @@ New-Item -ItemType directory -Path $TraceDir -Force | Out-Null
 
 Start-Transcript -Path "$TraceDir\transscript_output.txt" -Append -IncludeInvocationHeader |out-null
 Write-Host "Debug logs will be saved in: " $Path -ForegroundColor DarkCyan
-Write-Host "Options selected:  TracingEnabled:"$TraceEnabled "NetworkTrace:" $NetTraceEnabled " ConfigOnly:" $ConfigOnly " PerfCounter:" $PerfCounter -ForegroundColor DarkCyan
+Write-Host "Options selected:  TracingEnabled:"$TraceEnabled "NetworkTrace:" $NetTraceEnabled " ConfigOnly:" $ConfigOnly " PerfCounter:" $PerfCounter " LDAPTrace:" $LdapTraceEnabled -ForegroundColor DarkCyan
 Write-Progress -Activity "Preparation" -Status 'Setup Data Directory' -percentcomplete 5
 
 if ($TraceEnabled)
@@ -1003,6 +1068,7 @@ Write-Progress -Activity "Enable Logging" -Status 'Additional ETL Logging' -perc
 LogManStart
 EnableNetworkTrace
 EnablePerfCounter
+EnableLDAPTrace
 
 if($TraceEnabled)
 {
@@ -1022,6 +1088,7 @@ Write-Progress -Activity "Collecting" -Status 'Stop additional logs' -percentcom
     DisableNetworkTrace
     DisablePerfCounter
     DisableNetlogonDebug
+    DisableLDAPTrace
 
 Write-Progress -Activity "Collecting" -Status 'Getting otherlogs' -percentcomplete 70
 GatherTheRest
