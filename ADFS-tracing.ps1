@@ -834,7 +834,6 @@ Function GetADFSConfig
 		Get-AdfsNativeClientApplication | format-list * | Out-file "Get-AdfsNativeClientApplication.txt"
 		Get-AdfsRegistrationHosts | format-list * | Out-file "Get-AdfsRegistrationHosts.txt"
 		Get-AdfsRelyingPartyTrustsGroup | format-list * | Out-file "Get-AdfsRelyingPartyTrustsGroup.txt"
-		Get-AdfsRelyingPartyWebTheme | format-list * | Out-file "Get-AdfsRelyingPartyWebTheme.txt"
 		Get-AdfsScopeDescription | format-list * | Out-file "Get-AdfsScopeDescription.txt"
 		Get-AdfsServerApplication | format-list * | Out-file "Get-AdfsServerApplication.txt"
 		Get-AdfsTrustedFederationPartner | format-list * | Out-file "Get-AdfsTrustedFederationPartner.txt"
@@ -849,7 +848,9 @@ Function GetADFSConfig
 		Get-AdfsRelyingPartyWebContent | format-list * | Out-file "Get-AdfsRelyingPartyWebContent.txt"
 		Get-AdfsWebApplicationProxyRelyingPartyTrust | format-list * | Out-file "Get-AdfsWebApplicationProxyRelyingPartyTrust.txt"
 		Get-AdfsWebConfig | format-list * | Out-file "Get-AdfsWebConfig.txt"
+        $Global:FormatEnumerationLimit=$FEL
 		Get-AdfsWebTheme | format-list * | Out-file "Get-AdfsWebTheme.txt"
+        Get-AdfsRelyingPartyWebTheme | format-list * | Out-file "Get-AdfsRelyingPartyWebTheme.txt"
         }
         copy-item -path "$env:windir\ADFS\Microsoft.IdentityServer.ServiceHost.Exe.Config" -Destination $TraceDir
         Get-ADFSAzureMfaAdapterconfig |format-list | Out-file "Get-ADFSAzureMfaAdapterconfig.txt"
@@ -876,6 +877,7 @@ Function GetADFSConfig
 		 Get-AdfsRelyingPartyWebContent | format-list * | Out-file "Get-AdfsRelyingPartyWebContent.txt"
 		 Get-AdfsWebApplicationProxyRelyingPartyTrust | format-list * | Out-file "Get-AdfsWebApplicationProxyRelyingPartyTrust.txt"
 		 Get-AdfsWebConfig | format-list * | Out-file "Get-AdfsWebConfig.txt"
+         $Global:FormatEnumerationLimit=$FEL
 		 Get-AdfsWebTheme | format-list * | Out-file "Get-AdfsWebTheme.txt"
          copy-item -path "$env:windir\ADFS\Microsoft.IdentityServer.ServiceHost.Exe.Config" -Destination $TraceDir
 	    }
