@@ -66,7 +66,6 @@ Get-ChildItem -Path Cert:\LocalMachine\Root -recurse `
     {$obj |Add-Member -MemberType NoteProperty -Name "Origin" -Value 'Registry'}
     $certs += $obj
     $obj = $null
-    $keyspec = $null
     })
     return $certs
  }
@@ -99,8 +98,6 @@ Get-ChildItem -Path Cert:\LocalMachine\CA -recurse `
     {$obj |Add-Member -MemberType NoteProperty -Name "Origin" -Value 'Registry'}
     $certs += $obj
     $obj = $null
-    $keyspec = $null
-
     })
 
     return $certs
@@ -125,8 +122,6 @@ Get-ItemProperty HKLM:\SOFTWARE\Microsoft\EnterpriseCertificates\NTAuth\Certific
     $obj |Add-Member -MemberType NoteProperty -Name "Origin" -Value 'DirectoryService'
     $certs += $obj
     $obj = $null
-    $keyspec = $null
-
     })
 
     return $certs
@@ -150,8 +145,6 @@ Get-ItemProperty HKLM:\SOFTWARE\Microsoft\SystemCertificates\AdfsTrustedDevices\
     $obj |Add-Member -MemberType NoteProperty -Name "Origin" -Value 'ADFS'
     $certs += $obj
     $obj = $null
-    $keyspec = $null
-
     })
 
     return $certs
@@ -175,8 +168,6 @@ Get-ItemProperty HKLM:\SOFTWARE\Microsoft\SystemCertificates\ClientAuthIssuer\Ce
     $obj |Add-Member -MemberType NoteProperty -Name "Origin" -Value 'Registry'
     $certs += $obj
     $obj = $null
-    $keyspec = $null
-
     })
     if($certs.Count -eq 0 ){$certs="ClientAuthIssuers is configured on an ADFS related binding but the Store is empty. This can break Certificate Based authentication for users"}
     return $certs

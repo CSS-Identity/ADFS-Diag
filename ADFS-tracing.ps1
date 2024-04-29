@@ -25,7 +25,7 @@ param (
 #region Parameters
 [Version]$WinVer = (Get-WmiObject win32_operatingsystem).version
 $IsProxy = ((Get-WindowsFeature -name ADFS-Proxy).Installed -or (Get-WindowsFeature -name Web-Application-Proxy).Installed)
-$isdomainjoined = (Get-WmiObject -Class Win32_ComputerSystem).PartOfDomain
+#$isdomainjoined = (Get-WmiObject -Class Win32_ComputerSystem).PartOfDomain
 
 # Event logs
 $ADFSDebugEvents = "Microsoft-Windows-CAPI2/Operational","AD FS Tracing/Debug","Device Registration Service Tracing/Debug"
@@ -239,10 +239,10 @@ $perfc.Font                      = 'Arial,10'
 
 #Checkbox LDAP Tracing
 $ldapt                           = New-Object system.Windows.Forms.CheckBox
-$ldapt.text                      = "include LDAP Traces"
+$ldapt.text                      = "LDAP Traces (if requested by Engineer)"
 $ldapt.AutoSize                  = $false
 $ldapt.Enabled                   = $false
-$ldapt.width                     = 260
+$ldapt.width                     = 300
 $ldapt.height                    = 20
 $ldapt.location                  = New-Object System.Drawing.Point(340,415)
 $ldapt.Font                      = 'Arial,10'
@@ -415,12 +415,12 @@ Function LogManStart
 {
     if($TraceEnabled)
     {
+        Push-Location $TraceDir
 	        ForEach ($ets in $LogmanOn)
 	        {
-		    Push-Location $TraceDir
 		    cmd /c $ets |Out-Null
-		    Pop-Location
-	        }
+            }
+        Pop-Location
     }
     else
     { Write-Host "ETW Tracing skipped due to selected scenario" -ForegroundColor DarkCyan }
@@ -448,24 +448,24 @@ Function EnableNetlogonDebug
 
 Function AllOtherLogs
 {
+    Push-Location $TraceDir
 	ForEach ($o in $others)
-	{
-		Push-Location $TraceDir
-		cmd.exe /c $o |Out-Null
-		Pop-Location
+	{		
+		cmd.exe /c $o |Out-Null		
 	}
+    Pop-Location
 }
 
 Function LogManStop
 {
     if($TraceEnabled)
     {
+        Push-Location $TraceDir
         ForEach ($log in $LogmanOff)
         {
-	    	Push-Location $TraceDir
-	    	cmd.exe /c $log |Out-Null
-	    	Pop-Location
-        }
+	       	cmd.exe /c $log |Out-Null
+	    }
+        Pop-Location
     }
     else
     { Write-host "ETW Tracing was not enabled" -ForegroundColor DarkCyan }
@@ -560,7 +560,6 @@ function widlogs
         Copy-Item ($file.fullname) -Destination $wid
         }
     }
-
 }
 
 
@@ -583,14 +582,14 @@ Function GatherTheRest
     if((Get-WmiObject -Namespace root\ADFS -Class SecurityTokenService).ConfigurationDatabaseConnectionString -match "##wid" -or $ConnectionString -match "##ssee"){widlogs}
     }
     else{Get-WebApplicationProxySslCertificate|foreach-object {if($_.CtlStoreName -eq "ClientAuthIssuer" ){Get-ClientAuthIssuerCertificates| out-file $env:COMPUTERNAME-Certificates-CliAuthIssuer.txt}} }
-    Get-DnsClientCache |Sort-Object -Property Entry |fl |Out-File $env:COMPUTERNAME-DNSClient-Cache.txt
-    Get-ChildItem env: |ft Key,Value -Wrap |Out-File $env:COMPUTERNAME-environment-variables.txt
+    Get-DnsClientCache |Sort-Object -Property Entry |format-list |Out-File $env:COMPUTERNAME-DNSClient-Cache.txt
+    Get-ChildItem env: |Format-Table Key,Value -Wrap |Out-File $env:COMPUTERNAME-environment-variables.txt
     Get-NetTCPConnection|Sort-Object -Property LocalAddress |out-file $env:COMPUTERNAME-NetTCPConnection.txt
-    get-service|Sort-Object -Property Status -Descending |ft DisplayName,Status,StartType -autosize | out-file $env:COMPUTERNAME-services-running.txt
-    get-process |Sort-Object Id |ft Name,Id, SessionId,WorkingSet -AutoSize |out-file $env:COMPUTERNAME-tasklist.txt
+    get-service|Sort-Object -Property Status -Descending |Format-Table DisplayName,Status,StartType -autosize | out-file $env:COMPUTERNAME-services-running.txt
+    get-process |Sort-Object Id |Format-Table Name,Id, SessionId,WorkingSet -AutoSize |out-file $env:COMPUTERNAME-tasklist.txt
     Get-Content $env:windir\system32\drivers\etc\hosts |out-file $env:COMPUTERNAME-hosts.txt
-    ((get-childitem c:\windows\adfs\* -include *.dll,*.exe).VersionInfo |Sort-Object -Property FileVersion |ft FileName, FileVersion) |out-file $env:COMPUTERNAME-ADFS-fileversions.txt
-    VerifyNetFX |fl | out-file $env:COMPUTERNAME-DotNetFramework.txt
+    ((get-childitem $env:Windir\adfs\* -include *.dll,*.exe).VersionInfo |Sort-Object -Property FileVersion |Format-Table FileName, FileVersion) |out-file $env:COMPUTERNAME-ADFS-fileversions.txt
+    VerifyNetFX |format-list | out-file $env:COMPUTERNAME-DotNetFramework.txt
     Pop-Location
 }
 
@@ -605,7 +604,6 @@ Function EnablePerfCounter
             cmd /c $CreatePerfCountProxy |Out-Null
 		    cmd /c $EnablePerfCountProxy |Out-Null
 		    Pop-Location
-
             }
             else
             {
@@ -678,13 +676,13 @@ Function EnableLDAPTrace
         New-Item 'HKLM:\System\CurrentControlSet\Services\ldap\Tracing\powershell.exe' -Force | Out-Null
         New-Item 'HKLM:\System\CurrentControlSet\Services\ldap\Tracing\Microsoft.IdentityServer.ServiceHost.exe' -Force | Out-Null
         New-Item 'HKLM:\System\CurrentControlSet\Services\ldap\Tracing\wsmprovhost.exe' -Force | Out-Null
-
+        
+        Push-Location $TraceDir
             ForEach ($log in $ldapetlOn)
             {
-	    	Push-Location $TraceDir
-	    	cmd.exe /c $log |Out-Null
-	    	Pop-Location
+	        cmd.exe /c $log |Out-Null
             }
+        Pop-Location
         }
     }
 }
@@ -696,12 +694,12 @@ Function DisableLDAPTrace
         if($TraceEnabled -and $LdapTraceEnabled)
         {
             Write-Host "Stopping LDAP Tracing" -ForegroundColor DarkCyan
+            Push-Location $TraceDir
             ForEach ($log in $ldapetlOff)
             {
-	    	Push-Location $TraceDir
 	    	cmd.exe /c $log |Out-Null
-	    	Pop-Location
-            }
+	    	}
+            Pop-Location
     Remove-Item 'HKLM:\System\CurrentControlSet\Services\ldap\Tracing\powershell_ise.exe' -Force | Out-Null
     Remove-Item 'HKLM:\System\CurrentControlSet\Services\ldap\Tracing\powershell.exe' -Force | Out-Null
     Remove-Item 'HKLM:\System\CurrentControlSet\Services\ldap\Tracing\Microsoft.IdentityServer.ServiceHost.exe' -Force | Out-Null
@@ -709,11 +707,10 @@ Function DisableLDAPTrace
         }
         else
         { Write-host "LDAP Tracing was not enabled" -ForegroundColor DarkCyan }
-
     }
 }
 
-function getServiceAccountDetails
+function GetServiceAccountDetails
 {
 if (!$IsProxy)
 {
@@ -746,7 +743,7 @@ if($re.GetType().Name -eq 'SearchResponse')
     {
         $adl = new-object System.DirectoryServices.ActiveDirectorySecurity
         $adl.SetSecurityDescriptorBinaryForm($re.Entries[0].Attributes.'msds-groupmsamembership'[0])
-        "`nGMSA allowed Hosts: `n" + $adl.AccessToString |ft |out-file Get-ServicePrincipalNames.txt -Append
+        "`nGMSA allowed Hosts: `n" + $adl.AccessToString | Format-Table |out-file Get-ServicePrincipalNames.txt -Append
     }
     else {"`nService Account used is a generic User"| out-file Get-ServicePrincipalNames.txt -Append}
 
@@ -762,8 +759,7 @@ if($re.GetType().Name -eq 'SearchResponse')
     {
         $KRBflags = enumerateKrb $EncType
     }
-    else { $KRBflags ="`n`No Encryptiontypes configured, DomainDefaultPolicies for Kerberos will apply; refer to https://support.microsoft.com/help/5021131 .`n`t" }
-
+    else { $KRBflags ="`n`tmsds-supportedencryptiontypes is not configured on the service account, Service tickets would be RC4 only!`n`tFor AES Support configure the msds-supportedencryptiontypes on the ADFS Service Account with a value of either:`n`t24(decimal) == AES only `n`t or `n`t28(decimal) == AES & RC4" }
     "`nKerberos Encryption Types supported by Service Account: " + $KRBflags |Out-File Get-ServicePrincipalNames.txt -Append
 }
 else
@@ -786,6 +782,9 @@ else
 
 Function GetADFSConfig
 {
+    $FEL=$Global:FormatEnumerationLimit
+    $Global:FormatEnumerationLimit=-1
+    
     Push-Location $TraceDir
     if ($IsProxy)
     {
@@ -800,13 +799,12 @@ Function GetADFSConfig
 		    Get-WebApplicationProxyConfiguration | format-list * | Out-file "Get-WebApplicationProxyConfiguration.txt"
 		    Get-WebApplicationProxyHealth | format-list * | Out-file "Get-WebApplicationProxyHealth.txt"
 		    Get-WebApplicationProxySslCertificate | format-list * | Out-file "Get-WebApplicationProxySslCertificate.txt"
-		    $proxcfg = 'copy %WINDIR%\ADFS\Config\Microsoft.IdentityServer.ProxyService.exe.config %COMPUTERNAME%-Microsoft.IdentityServer.ProxyService.exe.config'
-            cmd.exe /c $proxcfg |Out-Null
-	    }
+            copy-item -path "$env:windir\ADFS\Config\Microsoft.IdentityServer.ProxyService.exe.config" -Destination $TraceDir
+		}
     }
     else # Is ADFS server
     {
-	    # Common ADFS commands to all version
+  	    # Common ADFS commands to all version
         if((Get-AdfsSyncProperties).Role -eq 'PrimaryComputer')
         {
         Get-AdfsAttributeStore | format-list * | Out-file "Get-AdfsAttributeStore.txt"
@@ -819,15 +817,14 @@ Function GetADFSConfig
         }
 	    Get-AdfsSyncProperties | format-list * | Out-file "Get-AdfsSyncProperties.txt"
 	    Get-AdfsSslCertificate | format-list * | Out-file "Get-AdfsSslCertificate.txt"
-        getServiceAccountDetails
+        GetServiceAccountDetails
 
 
-	if ($WinVer -ge [Version]"10.0.14393") # ADFS commands specific to ADFS 2016 and common in 2019
+	if ($WinVer -ge [Version]"10.0.14393") # ADFS commands specific to ADFS 2016,2019
 	    {
         if((Get-AdfsSyncProperties).Role -eq 'PrimaryComputer')
         {
-        (Get-AdfsProperties).WiasupportedUseragents | Out-file -Append "Get-AdfsProperties.txt"
-		Get-AdfsAccessControlPolicy | format-list * | Out-file "Get-AdfsAccessControlPolicy.txt"
+        Get-AdfsAccessControlPolicy | format-list * | Out-file "Get-AdfsAccessControlPolicy.txt"
 		Get-AdfsApplicationGroup | format-list * | Out-file "Get-AdfsApplicationGroup.txt"
 		Get-AdfsApplicationPermission | format-list * | Out-file "Get-AdfsApplicationPermission.txt"
 		Get-AdfsCertificateAuthority | format-list * | Out-file "Get-AdfsCertificateAuthority.txt"
@@ -854,9 +851,8 @@ Function GetADFSConfig
 		Get-AdfsWebConfig | format-list * | Out-file "Get-AdfsWebConfig.txt"
 		Get-AdfsWebTheme | format-list * | Out-file "Get-AdfsWebTheme.txt"
         }
-		$svccfg = 'copy %WINDIR%\ADFS\Microsoft.IdentityServer.ServiceHost.Exe.Config %COMPUTERNAME%-Microsoft.IdentityServer.ServiceHost.Exe.Config'
-        cmd.exe /c $svccfg |Out-Null
-        Get-ADFSAzureMfaAdapterconfig |fl | Out-file "Get-ADFSAzureMfaAdapterconfig.txt"
+        copy-item -path "$env:windir\ADFS\Microsoft.IdentityServer.ServiceHost.Exe.Config" -Destination $TraceDir
+        Get-ADFSAzureMfaAdapterconfig |format-list | Out-file "Get-ADFSAzureMfaAdapterconfig.txt"
 
         ##comming soon: WHFB Cert Trust Informations
         if ($WinVer -ge [Version]"10.0.17763") #ADFS command specific to ADFS 2019+
@@ -870,7 +866,6 @@ Function GetADFSConfig
 		}
 	    if ($WinVer -eq [Version]"6.3.9600") # ADFS commands specific to ADFS 2012 R2/consolidate this in next release
 	    {
-         (Get-AdfsProperties).WiasupportedUseragents | Out-file -Append "Get-AdfsProperties.txt"
          Get-AdfsAdditionalAuthenticationRule | format-list * | Out-file "Get-AdfsAdditionalAuthenticationRule.txt"
 		 Get-AdfsAuthenticationProvider | format-list * | Out-file "Get-AdfsAuthenticationProvider.txt"
 		 Get-AdfsAuthenticationProviderWebContent | format-list * | Out-file "Get-AdfsAuthenticationProviderWebContent.txt"
@@ -882,8 +877,7 @@ Function GetADFSConfig
 		 Get-AdfsWebApplicationProxyRelyingPartyTrust | format-list * | Out-file "Get-AdfsWebApplicationProxyRelyingPartyTrust.txt"
 		 Get-AdfsWebConfig | format-list * | Out-file "Get-AdfsWebConfig.txt"
 		 Get-AdfsWebTheme | format-list * | Out-file "Get-AdfsWebTheme.txt"
-		 $svccfg = 'copy %WINDIR%\ADFS\Microsoft.IdentityServer.ServiceHost.Exe.Config %COMPUTERNAME%-Microsoft.IdentityServer.ServiceHost.Exe.Config'
-         cmd.exe /c $svccfg |Out-Null
+         copy-item -path "$env:windir\ADFS\Microsoft.IdentityServer.ServiceHost.Exe.Config" -Destination $TraceDir
 	    }
 	    elseif ($WinVer -eq [Version]"6.2.9200")
 	    {
@@ -891,6 +885,7 @@ Function GetADFSConfig
 	    }
     }
     Pop-Location
+    $Global:FormatEnumerationLimit=$FEL
 }
 
 Function EndOfCollection
