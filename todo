@@ -1,0 +1,7 @@
+update this 
+
+# $filter= "(serviceprincipalname="+('*/'+(get-servicesettingsfromdb).ServiceSettingsData.SecurityTokenService.Host.Name)+")"
+
+we should not rely on the Config as we may fail to access DB if its SQL
+we can attempt the following
+-try  get-adfsproperties if it fails try DB if it fails try sslbinding if it fails
