@@ -25,7 +25,6 @@ param (
 #region Parameters
 [Version]$WinVer = (Get-WmiObject win32_operatingsystem).version
 $IsProxy = ((Get-WindowsFeature -name ADFS-Proxy).Installed -or (Get-WindowsFeature -name Web-Application-Proxy).Installed)
-
 # Event logs
 $ADFSDebugEvents = "Microsoft-Windows-CAPI2/Operational","AD FS Tracing/Debug","Device Registration Service Tracing/Debug"
 $WAPDebugEvents  = "Microsoft-Windows-CAPI2/Operational","AD FS Tracing/Debug","Microsoft-Windows-WebApplicationProxy/Session"
@@ -43,12 +42,7 @@ else {
     else {$hm=$pwd.Path}
 }
 
-import-Module $hm\helpermodules\proxysettings.psm1
-import-Module $hm\helpermodules\certificates.psm1
-if($PSVersionTable.PSVersion -le [Version]'4.0') {
-    Import-Module $hm\helpermodules\krbtype_enum_v4.psm1 } 
-else {
-    Import-Module $hm\helpermodules\krbtype_enum_v5.psm1 }
+if($PSVersionTable.PSVersion -le [Version]'4.0') { Import-Module $hm\helpermodules\krbtype_enum_v4.psm1 } else { Import-Module $hm\helpermodules\krbtype_enum_v5.psm1 }
 
 #Definition Netlogon Debug Logging
 $setDBFlag = 'DBFlag'
@@ -219,9 +213,10 @@ $Form.StartPosition              = 'CenterScreen'
 $Form.MaximizeBox                = $false
 $Form.MinimizeBox                = $false
 $Form.FormBorderStyle            = [System.Windows.Forms.FormBorderStyle]::Fixed3D
+
 # Text field
 $Description                     = New-Object system.Windows.Forms.RichTextBox
-$Description.Size               = [System.Drawing.Size]::new(780, 360)
+$Description.Size               = [System.Drawing.Size]::new(770, 360)
 $Description.multiline           = $true
 $Description.location            = New-Object System.Drawing.Point(15,0)
 $Description.Font                = 'Arial,10'
@@ -237,7 +232,7 @@ $yOffset = 20 # Y offset for aligning checkboxes
 $Scenario = New-Object System.Windows.Forms.GroupBox
 $Scenario.Text = "Scenario"
 $Scenario.Location = [System.Drawing.Point]::new(15, 375) # Positioned below the RichTextBox
-$Scenario.Size = [System.Drawing.Size]::new(780, 50)
+$Scenario.Size = [System.Drawing.Size]::new(770, 50)
 $cScenario = @("Configuration only", "Runtime Tracing")
 
 for ($i = 0; $i -lt $cScenario.Length; $i++) {
@@ -278,9 +273,9 @@ for ($i = 0; $i -lt $cOptions.Length; $i++) {
 $aOptions = New-Object System.Windows.Forms.GroupBox
 $aOptions.Text = "advanced Options (can cause service restarts)"
 $aOptions.Location = [System.Drawing.Point]::new(500, 430) # Positioned below the ScenarioGroup
-$aOptions.Size = [System.Drawing.Size]::new(295, 50) # Adjust the size as needed
+$aOptions.Size = [System.Drawing.Size]::new(285, 50) # Adjust the size as needed
 
-$caOptions = @("LDAP Traces (if requested by Engineer)")
+$caOptions = @("LDAP Traces")
 
 for ($i = 0; $i -lt $caOptions.Length; $i++) {
   $checkBox = New-Object System.Windows.Forms.CheckBox
@@ -290,7 +285,7 @@ for ($i = 0; $i -lt $caOptions.Length; $i++) {
   $checkBox.Location = [System.Drawing.Point]::new($xOffset + ($i * $checkBoxWidth), $yOffset)
 
   switch -Wildcard ($caOptions[$i]) {
-    "LDAP Traces (if requested by Engineer)" { Set-Variable -Name ldapt -Value $checkBox -Force }
+    "LDAP Traces" { Set-Variable -Name ldapt -Value $checkBox -Force }
     }
   $aOptions.Controls.Add($checkBox)
 }
@@ -414,12 +409,103 @@ $c.SessionOptions.Signing = $true
 $c.AuthType = [System.DirectoryServices.Protocols.AuthType]::Kerberos
 $c.Bind();
 $c.Timeout=[timespan]::FromSeconds(45)
-if([string]::IsNullOrEmpty($basedn)){ $basedn = (New-Object System.DirectoryServices.DirectoryEntry("LDAP://$conn/RootDSE")).DefaultNamingContext}
+if([string]::IsNullOrEmpty($basedn)){ $basedn = (New-Object System.DirectoryServices.DirectoryEntry("LDAP://$conn/RootDSE")).DefaultNamingContext }
 $scope = [System.DirectoryServices.Protocols.SearchScope]::Subtree
 $r = New-Object System.DirectoryServices.Protocols.SearchRequest -ArgumentList $basedn,$filter,$scope,$att
-$re = try { $c.SendRequest($r)}catch{$_.Exception.InnerException }
+$re = try { $c.SendRequest($r) } catch { $_.Exception.InnerException }
 $c.Dispose()
 return $re
+}
+
+function get-Certificatesfromstore {
+    param(
+      [string]$StoreName
+    )
+  
+  $store = New-Object System.Security.Cryptography.X509Certificates.X509Store($StoreName,[System.Security.Cryptography.X509Certificates.StoreLocation]::LocalMachine)
+  $store.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadOnly)
+  $certcollection = $store.Certificates 
+  $store.Close()
+  return $certcollection
+}
+
+function Get-CertificatesByStore {
+    param (
+        [Parameter(Mandatory=$true)]
+        [ValidateSet("My", "Root", "CA", "NtAuth", "ADFSTrustedDevices", "ClientAuthIssuer")]
+        [string]$StoreName
+    )
+
+    $storePath = switch ($StoreName) {
+        "My" { [System.Security.Cryptography.X509Certificates.StoreName]::My }
+        "Root" { [System.Security.Cryptography.X509Certificates.StoreName]::Root }
+        "CA" { 'CA' } # [System.Security.Cryptography.X509Certificates.StoreName]::CertificateAuthority seems to be not working so using the Alias CA instead
+        "NtAuth" { 'NtAuth' }
+        "ADFSTrustedDevices" { 'ADFSTrustedDevices' }
+        "ClientAuthIssuer" { 'ClientAuthIssuer' }
+    }
+
+    $certs = get-Certificatesfromstore $storePath
+    $mycert = @()
+
+    foreach ($cert in $certs) {
+        $obj = New-Object -TypeName PSObject
+        $obj | Add-Member -MemberType NoteProperty -Name "Issuer" -Value $cert.Issuer
+        if(($cert.FriendlyName)){$obj | Add-Member -MemberType NoteProperty -Name "FriendlyName" -Value $cert.FriendlyName}
+        $obj | Add-Member -MemberType NoteProperty -Name "Subject" -Value $cert.Subject
+        $obj | Add-Member -MemberType NoteProperty -Name "NotAfter" -Value $cert.NotAfter
+        $obj | Add-Member -MemberType NoteProperty -Name "NotBefore" -Value $cert.NotBefore
+        $obj | Add-Member -MemberType NoteProperty -Name "SerialNumber" -Value $cert.SerialNumber
+        $obj | Add-Member -MemberType NoteProperty -Name "ThumbPrint" -Value $cert.Thumbprint
+
+        # PrivateKey and related properties for MY store
+        if ($StoreName -eq "My") {
+            $obj | Add-Member -MemberType NoteProperty -Name "PrivateKey" -Value $cert.HasPrivateKey
+            $obj | Add-Member -MemberType NoteProperty -Name "Exportable" -Value $cert.PrivateKey.CspKeyContainerInfo.Exportable
+            $obj | Add-Member -MemberType NoteProperty -Name "ProviderName" -Value $cert.PrivateKey.CspKeyContainerInfo.ProviderName
+
+            $keyspec = (($cert.PrivateKey).CspKeyContainerInfo).KeyNumber
+            $keyspecName = switch ($keyspec) {
+                "Exchange" { "AT_EXCHANGE" }
+                "Signature" { "AT_SIGNATURE" }
+                default { "CNG" }
+            }
+            $obj | Add-Member -MemberType NoteProperty -Name "Keyspec" -Value $keyspecName
+        }
+
+        # Root/Non-Root check and origin determination for other stores
+        if ($StoreName -ne "My") {
+            if ($cert.Subject -ne $cert.Issuer) {
+                $obj | Add-Member -MemberType NoteProperty -Name "IsRoot" -Value 'Non-Root'
+            } else {
+                $obj | Add-Member -MemberType NoteProperty -Name "IsRoot" -Value 'Root'
+            }
+
+            # Determine the origin based on store type
+            $certsrc = $null
+            if ($StoreName -eq "NtAuth") {  $obj | Add-Member -MemberType NoteProperty -Name "Origin" -Value 'DirectoryService' } 
+            elseif ($StoreName -eq "ADFSTrustedDevices") { $obj | Add-Member -MemberType NoteProperty -Name "Origin" -Value 'ADFS' }
+            elseif ($StoreName -eq "ClientAuthIssuer") { $obj | Add-Member -MemberType NoteProperty -Name "Origin" -Value 'Registry' } 
+            else {
+                $ds = "HKLM:\SOFTWARE\Microsoft\EnterpriseCertificates\$StoreName\Certificates\" + $cert.Thumbprint
+                $gpo = "HKLM:\SOFTWARE\Policies\Microsoft\SystemCertificates\$StoreName\Certificates\" + $cert.Thumbprint
+
+                if ([bool](Test-Path $ds)) { $certsrc = "DirectoryService" }
+                if ([bool](Test-Path $gpo)) { $certsrc = "GroupPolicy" }
+                if (![string]::IsNullOrEmpty($certsrc)) { $obj | Add-Member -MemberType NoteProperty -Name "Origin" -Value $certsrc } 
+                else { $obj | Add-Member -MemberType NoteProperty -Name "Origin" -Value 'Registry' }
+            }
+        }
+
+        $mycert += $obj
+    }
+
+    # We check ClientAuthIssuer only if a bidning was configured. An empty store can cause issues so warn.
+    if ($StoreName -eq "ClientAuthIssuer" -and $mycert.Count -eq 0) {
+        $mycert = "WARNING: ClientAuthIssuers is configured on an ADFS related binding but the Certificate store is empty. This can break Certificate Based authentication for users"
+    }
+
+    return $mycert
 }
 
 function get-servicesettingsfromdb () {
@@ -503,6 +589,66 @@ function Get-ADFSAzureMfaAdapterconfig {
     return $obj
     }
     else { return "Information:  AzureMFA is not configured in this ADFS Farm." }
+}
+
+Add-Type -TypeDefinition @"
+    using System.Runtime.InteropServices;
+    public enum AccessType
+    {
+        DefaultProxy = 0,
+        NoProxy = 1,
+        NamedProxy = 3,
+        AutomaticProxy = 4
+    }
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    public struct WINHTTP_PROXY_INFO
+    {
+        public AccessType AccessType;
+        public string Proxy;
+        public string Bypass;
+    }
+
+    public struct WinhttpCurrentUserIeProxyConfig
+    {
+        [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
+        public bool AutoDetect;
+        [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPWStr)]
+        public string AutoConfigUrl;
+        [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPWStr)]
+        public string Proxy;
+        [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPWStr)]
+        public string ProxyBypass;
+    }
+
+    public class WinHttp
+    {
+        [DllImport("winhttp.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        public static extern bool WinHttpGetDefaultProxyConfiguration(ref WINHTTP_PROXY_INFO config);
+        [DllImport("winhttp.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        public static extern bool WinHttpGetIEProxyConfigForCurrentUser(ref WinhttpCurrentUserIeProxyConfig pProxyConfig);
+    }
+"@
+
+function GetProxySettings {
+    $proxycfg = [PSCustomObject]@{}
+    $IEProxyConfig = New-Object WinhttpCurrentUserIeProxyConfig
+    [WinHttp]::WinHttpGetIEProxyConfigForCurrentUser([ref]$IEProxyConfig) |Out-Null
+
+    $WINHTTPPROXY = New-Object WINHTTP_PROXY_INFO
+    [WinHttp]::WinHttpGetDefaultProxyConfiguration([ref]$WINHTTPPROXY) |Out-Null
+
+    $proxycfg| Add-Member -MemberType NoteProperty -Name 'IE_ProxySetting_CurrentUser' -Value '------------------'
+    $proxycfg| Add-Member -MemberType NoteProperty -Name 'IE_ProxySetting_AutoDetect' -Value $IEProxyConfig.AutoDetect
+    $proxycfg| Add-Member -MemberType NoteProperty -Name 'IE_ProxySetting_AutoConfigUrl' -Value $IEProxyConfig.AutoConfigUrl
+    $proxycfg| Add-Member -MemberType NoteProperty -Name 'IE_ProxySetting_ProxName' -Value $IEProxyConfig.Proxy
+    $proxycfg| Add-Member -MemberType NoteProperty -Name 'IE_ProxySetting_ProxyBypass' -Value $IEProxyConfig.ProxyBypass
+    $proxycfg| Add-Member -MemberType NoteProperty -Name 'WinHTTP_Proxy_Setting' -Value '------------------'
+    $proxycfg| Add-Member -MemberType NoteProperty -Name 'WinHTTP_Proxy_AutoDetect' -Value $WINHTTPPROXY.AccessType
+    $proxycfg| Add-Member -MemberType NoteProperty -Name 'WinHTTP_Proxy_ProxName' -Value $WINHTTPPROXY.Proxy
+    $proxycfg| Add-Member -MemberType NoteProperty -Name 'WinHTTP_Proxy_ProxyBypass' -Value $WINHTTPPROXY.Bypass
+
+    return $proxycfg
 }
 
 Function EnableDebugEvents ($events) {
@@ -649,21 +795,20 @@ function widlogs {
     }
 }
 
-
 Function GatherTheRest {
     Push-Location $TraceDir
     ForEach ($logfile in $Filescollector) {
 		cmd.exe /c $logfile | out-null
     }
     GetProxySettings | out-file  $env:COMPUTERNAME-ProxySettings.txt
-    Get-LocalMachineCerts| out-file  $env:COMPUTERNAME-Certificates-My.txt
-    Get-RootCACertificates| out-file  $env:COMPUTERNAME-Certificates-Root.txt
-    Get-IntermediateCACertificates| out-file  $env:COMPUTERNAME-Certificates-CA.txt
-    Get-NTauthCertificates| out-file  $env:COMPUTERNAME-Certificates-NTAuth.txt
-    Get-ADFSTrustedDevicesCertificates| out-file  $env:COMPUTERNAME-Certificates-ADFSTrustedDevices.txt
+    Get-CertificatesByStore MY| out-file  $env:COMPUTERNAME-Certificates-My.txt
+    Get-CertificatesByStore Root| out-file  $env:COMPUTERNAME-Certificates-Root.txt
+    Get-CertificatesByStore CA| out-file  $env:COMPUTERNAME-Certificates-CA.txt
+    Get-CertificatesByStore NTAuth| out-file  $env:COMPUTERNAME-Certificates-NTAuth.txt
+    Get-CertificatesByStore ADFSTrustedDevices| out-file  $env:COMPUTERNAME-Certificates-ADFSTrustedDevices.txt
     
     if(!$IsProxy) {
-    Get-Adfssslcertificate|foreach-object {if($_.CtlStoreName -eq "ClientAuthIssuer" ) {Get-ClientAuthIssuerCertificates| out-file $env:COMPUTERNAME-Certificates-CliAuthIssuer.txt }}
+    Get-Adfssslcertificate|foreach-object {if($_.CtlStoreName -eq "ClientAuthIssuer" ) {Get-CertificatesByStore ClientAuthIssuer| out-file $env:COMPUTERNAME-Certificates-CliAuthIssuer.txt }}
     
     if((Get-WmiObject -Namespace root\ADFS -Class SecurityTokenService).ConfigurationDatabaseConnectionString -match "##wid" -or $ConnectionString -match "##ssee"){
         widlogs}
@@ -1054,7 +1199,7 @@ else {
     Write-host "Your Logfolder: $Path does not exist. Creating Folder" -ForegroundColor DarkCyan
     New-Item -ItemType directory -Path $Path -Force | Out-Null
  }
-$FEL=$Global:FormatEnumerationLimit
+$FEL=$Global:FormatEnumerationLimit  ##secure current EnumLimit.Script should revert to this value at the end of execution
 $Global:FormatEnumerationLimit=-1
 
 $TraceDir = $Path +"\temporary"
