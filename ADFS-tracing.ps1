@@ -216,7 +216,7 @@ $Form.FormBorderStyle            = [System.Windows.Forms.FormBorderStyle]::Fixed
 
 # Text field
 $Description                     = New-Object system.Windows.Forms.RichTextBox
-$Description.Size               = [System.Drawing.Size]::new(770, 360)
+$Description.Size               = new-object System.Drawing.Size(770, 360)
 $Description.multiline           = $true
 $Description.location            = New-Object System.Drawing.Point(15,0)
 $Description.Font                = 'Arial,10'
@@ -231,15 +231,15 @@ $yOffset = 20 # Y offset for aligning checkboxes
 
 $Scenario = New-Object System.Windows.Forms.GroupBox
 $Scenario.Text = "Scenario"
-$Scenario.Location = [System.Drawing.Point]::new(15, 375) # Positioned below the RichTextBox
-$Scenario.Size = [System.Drawing.Size]::new(770, 50)
+$Scenario.Location = New-Object System.Drawing.Point(15, 375) # Positioned below the RichTextBox
+$Scenario.Size = new-object System.Drawing.Size(770, 50)
 $cScenario = @("Configuration only", "Runtime Tracing")
 
 for ($i = 0; $i -lt $cScenario.Length; $i++) {
     $checkBox = New-Object System.Windows.Forms.CheckBox
     $checkBox.Text = $cScenario[$i]
     $checkBox.AutoSize = $true
-    $checkBox.Location = [System.Drawing.Point]::new($xOffset + ($i * $checkBoxWidth), $yOffset)
+    $checkBox.Location = New-Object System.Drawing.Point(($xOffset + ($i * $checkBoxWidth)), $yOffset)
 
     switch -Wildcard ($cScenario[$i]) {
       "Configuration only" { Set-Variable -Name cfgonly -Value $checkBox -Force }
@@ -250,8 +250,8 @@ for ($i = 0; $i -lt $cScenario.Length; $i++) {
 
 $Options = New-Object System.Windows.Forms.GroupBox
 $Options.Text = "Options"
-$Options.Location = [System.Drawing.Point]::new(15, 430) # Positioned below the ScenarioGroup
-$Options.Size = [System.Drawing.Size]::new(480, 50) # Adjust the size as needed 780,50
+$Options.Location = New-Object System.Drawing.Point(15, 430) # Positioned below the ScenarioGroup
+$Options.Size = new-object System.Drawing.Size(480, 50) # Adjust the size as needed 780,50
 
 $cOptions = @("include Network Traces", "include Performance Counter")
 
@@ -260,7 +260,7 @@ for ($i = 0; $i -lt $cOptions.Length; $i++) {
   $checkBox.Text = $cOptions[$i]
   $checkBox.AutoSize = $true
   $checkBox.Enabled= $false
-  $checkBox.Location = [System.Drawing.Point]::new($xOffset + ($i * $checkBoxWidth), $yOffset)
+  $checkBox.Location = New-Object System.Drawing.Point(($xOffset + ($i * $checkBoxWidth)), $yOffset)
 
   switch -Wildcard ($cOptions[$i]) {
     "include Network Traces" { Set-Variable -Name NetTrace -Value $checkBox -Force }
@@ -272,8 +272,8 @@ for ($i = 0; $i -lt $cOptions.Length; $i++) {
 #####
 $aOptions = New-Object System.Windows.Forms.GroupBox
 $aOptions.Text = "advanced Options (can cause service restarts)"
-$aOptions.Location = [System.Drawing.Point]::new(500, 430) # Positioned below the ScenarioGroup
-$aOptions.Size = [System.Drawing.Size]::new(285, 50) # Adjust the size as needed
+$aOptions.Location = New-Object System.Drawing.Point(500, 430) # Positioned below the ScenarioGroup
+$aOptions.Size = new-object System.Drawing.Size(285, 50) # Adjust the size as needed
 
 $caOptions = @("LDAP Traces")
 
@@ -282,7 +282,7 @@ for ($i = 0; $i -lt $caOptions.Length; $i++) {
   $checkBox.Text = $caOptions[$i]
   $checkBox.AutoSize = $true
   $checkBox.Enabled= $false
-  $checkBox.Location = [System.Drawing.Point]::new($xOffset + ($i * $checkBoxWidth), $yOffset)
+  $checkBox.Location = New-Object System.Drawing.Point(($xOffset + ($i * $checkBoxWidth)), $yOffset)
 
   switch -Wildcard ($caOptions[$i]) {
     "LDAP Traces" { Set-Variable -Name ldapt -Value $checkBox -Force }
@@ -293,19 +293,19 @@ for ($i = 0; $i -lt $caOptions.Length; $i++) {
 #####
 $label = New-Object System.Windows.Forms.GroupBox
 $label.Text = 'Type a path to the Destination Folder or Click "Browse..." to select the Folder'
-$label.Location = [System.Drawing.Point]::new(15,480) # Positioned below the ScenarioGroup
-$label.Size = [System.Drawing.Size]::new(585, 60) # Adjust the size as needed
+$label.Location = New-Object System.Drawing.Point(15,480) # Positioned below the ScenarioGroup
+$label.Size = new-object System.Drawing.Size(585, 60) # Adjust the size as needed
 
 #Text Field for the Export Path to store the results
 $TargetFolder                    = New-Object system.Windows.Forms.TextBox
 $TargetFolder.text               = ""
-$TargetFolder.Size               = [System.Drawing.Size]::new(470, 30) 
+$TargetFolder.Size               = new-object System.Drawing.Size(470, 30) 
 $TargetFolder.location           = New-Object System.Drawing.Point(10,20)
 $TargetFolder.Font               = 'Arial,13'
 
 $SelFolder                       = New-Object system.Windows.Forms.Button
 $SelFolder.text                  = "Browse..."
-$SelFolder.Size                  = [System.Drawing.Size]::new(90, 29)
+$SelFolder.Size                  = new-object System.Drawing.Size(90, 29)
 $SelFolder.location              = New-Object System.Drawing.Point(486,20)
 $SelFolder.Font                  = 'Arial,10'
 
@@ -313,7 +313,7 @@ $label.Controls.AddRange(@($TargetFolder,$SelFolder))
 
 $Okbtn                           = New-Object system.Windows.Forms.Button
 $Okbtn.text                      = "OK"
-$Okbtn.Size                      = [System.Drawing.Size]::new(70, 30) 
+$Okbtn.Size                      = new-object System.Drawing.Size(70, 30) 
 $Okbtn.location                  = New-Object System.Drawing.Point(620,540)
 $Okbtn.Font                      = 'Arial,10'
 $Okbtn.DialogResult              = [System.Windows.Forms.DialogResult]::OK
@@ -321,10 +321,10 @@ $Okbtn.Enabled                   = $false
 
 $cnlbtn                          = New-Object system.Windows.Forms.Button
 $cnlbtn.text                     = "Cancel"
-$cnlbtn.Size                      = [System.Drawing.Size]::new(70, 30) 
+$cnlbtn.Size                     = new-object System.Drawing.Size(70, 30) 
 $cnlbtn.location                 = New-Object System.Drawing.Point(700,540)
 $cnlbtn.Font                     = 'Arial,10'
-$cnlbtn.DialogResult              = [System.Windows.Forms.DialogResult]::Cancel
+$cnlbtn.DialogResult             = [System.Windows.Forms.DialogResult]::Cancel
 
 $Form.controls.AddRange(@($Description,$Scenario,$Options,$aOptions,$Okbtn,$cnlbtn,$label))
 
@@ -786,8 +786,8 @@ Param(
 function widlogs {
     $widlog="$env:windir\WID\Log"
     $wid = $TraceDir + "\Wid"
-    #for the time being we only want to collect the error logs from wid if the cummulative size is less then 10MB
-    if ([math]::Round(((Get-ChildItem $widlog -Filter *.log)| Measure-Object -Property Length -sum).sum / 1Mb ,1) -le 10) {
+    #for the time being we only want to collect the error logs from wid if the cummulative size is less then 25MB was 10 initially
+    if ([math]::Round(((Get-ChildItem $widlog -Filter *.log)| Measure-Object -Property Length -sum).sum / 1Mb ,1) -le 25) {
     New-Item -ItemType directory -Path $wid -Force | Out-Null
     foreach ($file in (Get-ChildItem -Path $widlog -Filter *.log) ) {
         Copy-Item ($file.fullname) -Destination $wid
@@ -968,7 +968,7 @@ if($re.GetType().Name -eq 'SearchResponse') {
 }
 else { "Service Account query failed with error: "+$re.Message |Out-File Get-ServicePrincipalNames.txt -Append }
 
-    "`nChecking for Duplicate SPNs( current ServiceAccount will be included in this check):`n" |out-file Get-ServicePrincipalNames.txt -Append
+    "`nChecking for Duplicate SPNs (current ServiceAccount will be included in this check):`n" |out-file Get-ServicePrincipalNames.txt -Append
 
     $conn= (New-Object System.DirectoryServices.DirectoryEntry("GC://$domain/RootDSE")).dnshostname
     $filter= "(serviceprincipalname="+('*/'+(get-servicesettingsfromdb).ServiceSettingsData.SecurityTokenService.Host.Name)+")"
