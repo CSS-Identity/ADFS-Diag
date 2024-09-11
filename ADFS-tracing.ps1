@@ -23,7 +23,7 @@ param (
 
 ##########################################################################
 #region Parameters
-[Version]$WinVer = (Get-WmiObject win32_operatingsystem).version
+[Version]$WinVer = [System.Environment]::OSVersion.Version
 $IsProxy = ((Get-WindowsFeature -name ADFS-Proxy).Installed -or (Get-WindowsFeature -name Web-Application-Proxy).Installed)
 # Event logs
 $ADFSDebugEvents = "Microsoft-Windows-CAPI2/Operational","AD FS Tracing/Debug","Device Registration Service Tracing/Debug"
@@ -216,7 +216,7 @@ $Form.FormBorderStyle            = [System.Windows.Forms.FormBorderStyle]::Fixed
 
 # Text field
 $Description                     = New-Object system.Windows.Forms.RichTextBox
-$Description.Size               = new-object System.Drawing.Size(770, 360)
+$Description.Size                = new-object System.Drawing.Size(770, 360)
 $Description.multiline           = $true
 $Description.location            = New-Object System.Drawing.Point(15,0)
 $Description.Font                = 'Arial,10'
@@ -537,7 +537,7 @@ if(!$null -eq $ssd) { #loop through the AuthAdapters and find the config for Azu
 
 function Get-ADFSAzureMfaAdapterconfig {
     $MFAraw= AzureMFAConfig       
-    if($null -eq $MFAraw) {
+    if($null -ne $MFAraw) {
         $obj = [PSCustomObject]@{}
         $obj| Add-Member -MemberType NoteProperty -Name 'AdapterConfig' -Value $MFAraw
     
