@@ -387,8 +387,7 @@ Function Pause { param([String]$Message,[String]$MessageTitle,[String]$MessageC)
 ##########################################################################
 #region Functions
 Function IsAdminAccount {
-([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")
-return $true
+    return ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")
 }
 
 function LDAPQuery {
