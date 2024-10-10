@@ -32,17 +32,16 @@ $WAPDebugEvents  = "Microsoft-Windows-CAPI2/Operational","AD FS Tracing/Debug","
 $ADFSExportEvents = 'System','Application','Security','AD FS Tracing/Debug','AD FS/Admin','Microsoft-Windows-CAPI2/Operational','Device Registration Service Tracing/Debug','DRS/Admin'
 $WAPExportEvents  = 'System','Application','Security','AD FS Tracing/Debug','AD FS/Admin','Microsoft-Windows-CAPI2/Operational','Microsoft-Windows-WebApplicationProxy/Admin','Microsoft-Windows-WebApplicationProxy/Session'
 
-#Import Modules
-If ([Bool]$psISE) {
-    if ([string]::IsNullOrEmpty($PSScriptRoot)) {$hm = split-path ($psISE.CurrentFile.FullPath)}
-    else {$hm=$PSScriptRoot}
-}
-else {
-    if (![string]::IsNullOrEmpty($PSScriptRoot)){$hm=$PSScriptRoot}
-    else {$hm=$pwd.Path}
-}
-
-if($PSVersionTable.PSVersion -le [Version]'4.0') { Import-Module $hm\helpermodules\krbtype_enum_v4.psm1 } else { Import-Module $hm\helpermodules\krbtype_enum_v5.psm1 }
+#Import Modules deprecation Phase3: disable loader
+#If ([Bool]$psISE) {
+#    if ([string]::IsNullOrEmpty($PSScriptRoot)) {$hm = split-path ($psISE.CurrentFile.FullPath)}
+#    else {$hm=$PSScriptRoot}
+#}
+#else {
+#    if (![string]::IsNullOrEmpty($PSScriptRoot)){$hm=$PSScriptRoot}
+#    else {$hm=$pwd.Path}
+#}
+#if($PSVersionTable.PSVersion -le [Version]'4.0') { Import-Module $hm\helpermodules\krbtype_enum_v4.psm1 } else { Import-Module $hm\helpermodules\krbtype_enum_v5.psm1 }
 
 #Definition Netlogon Debug Logging
 $setDBFlag = 'DBFlag'
@@ -150,6 +149,72 @@ $fxversions = @{
         ".NET Framework 4.8.1 (Win11 2022)"     = 533320
         ".NET Framework 4.8.1 (other OS) "      = 533325
 }
+
+#TypeDefinition for interop with native APIs
+Add-Type -TypeDefinition @"
+    using System;
+    using System.Text.RegularExpressions;
+    using System.Runtime.InteropServices;
+
+    public enum AccessType
+    {
+        DefaultProxy = 0,
+        NoProxy = 1,
+        NamedProxy = 3,
+        AutomaticProxy = 4
+    }
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    public struct WINHTTP_PROXY_INFO
+    {
+        public AccessType AccessType;
+        public string Proxy;
+        public string Bypass;
+    }
+
+    public struct WinhttpCurrentUserIeProxyConfig
+    {
+        [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
+        public bool AutoDetect;
+        [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPWStr)]
+        public string AutoConfigUrl;
+        [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPWStr)]
+        public string Proxy;
+        [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPWStr)]
+        public string ProxyBypass;
+    }
+
+    public class WinHttp
+    {
+        [DllImport("winhttp.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        public static extern bool WinHttpGetDefaultProxyConfiguration(ref WINHTTP_PROXY_INFO config);
+        [DllImport("winhttp.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        public static extern bool WinHttpGetIEProxyConfigForCurrentUser(ref WinhttpCurrentUserIeProxyConfig pProxyConfig);
+    }
+    [Flags]
+    public enum EncTypes
+    {
+        DES_CBC_CRC = 0x01,
+        DES_CBC_MD5 = 0x02,
+        RC4_HMAC = 0x04,
+        AES128_CTS_HMAC_SHA1_96 = 0x08,
+        AES256_CTS_HMAC_SHA1_96 = 0x10,
+        FAST_Supported = 0x10000,
+        CompoundIdentity = 0x20000,
+        Claims_Supported = 0x40000,
+        Sid_Compression_Disabled = 0x80000
+    }
+
+    public class KrbEnum
+    {
+        public static string EnumerateKrb(int encType)
+        {
+        EncTypes type = (EncTypes)encType;
+        return Regex.Replace(type.ToString(), ", ", " | ");
+        }
+    }
+
+"@
 #endregion
 ##########################################################################
 #region UI
@@ -590,45 +655,6 @@ function Get-ADFSAzureMfaAdapterconfig {
     else { return "Information:  AzureMFA is not configured in this ADFS Farm." }
 }
 
-Add-Type -TypeDefinition @"
-    using System.Runtime.InteropServices;
-    public enum AccessType
-    {
-        DefaultProxy = 0,
-        NoProxy = 1,
-        NamedProxy = 3,
-        AutomaticProxy = 4
-    }
-
-    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
-    public struct WINHTTP_PROXY_INFO
-    {
-        public AccessType AccessType;
-        public string Proxy;
-        public string Bypass;
-    }
-
-    public struct WinhttpCurrentUserIeProxyConfig
-    {
-        [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
-        public bool AutoDetect;
-        [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPWStr)]
-        public string AutoConfigUrl;
-        [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPWStr)]
-        public string Proxy;
-        [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPWStr)]
-        public string ProxyBypass;
-    }
-
-    public class WinHttp
-    {
-        [DllImport("winhttp.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-        public static extern bool WinHttpGetDefaultProxyConfiguration(ref WINHTTP_PROXY_INFO config);
-        [DllImport("winhttp.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-        public static extern bool WinHttpGetIEProxyConfigForCurrentUser(ref WinhttpCurrentUserIeProxyConfig pProxyConfig);
-    }
-"@
-
 function GetProxySettings {
     $proxycfg = [PSCustomObject]@{}
     $IEProxyConfig = New-Object WinhttpCurrentUserIeProxyConfig
@@ -947,11 +973,11 @@ if($re.GetType().Name -eq 'SearchResponse') {
     if($gmsa -eq $true) {
         $adl = new-object System.DirectoryServices.ActiveDirectorySecurity
         $adl.SetSecurityDescriptorBinaryForm($re.Entries[0].Attributes.'msds-groupmsamembership'[0])
-        "`nGMSA allowed Hosts: `n" + $adl.AccessToString | Format-Table |out-file Get-ServicePrincipalNames.txt -Append
+        "`r`nGMSA allowed Hosts: `n" + $adl.AccessToString | Format-Table |out-file Get-ServicePrincipalNames.txt -Append
     }
-    else {"`nService Account used is a generic User"| out-file Get-ServicePrincipalNames.txt -Append}
+    else {"`r`nService Account used is a generic User"| out-file Get-ServicePrincipalNames.txt -Append}
 
-    "`nServicePrincipalNames registered: " |out-file Get-ServicePrincipalNames.txt -Append
+    "`r`nServicePrincipalNames registered: " |out-file Get-ServicePrincipalNames.txt -Append
     $re.Entries.Attributes.serviceprincipalname.GetValues('string') |out-file Get-ServicePrincipalNames.txt -Append
 
     $EncType=$null
@@ -960,21 +986,21 @@ if($re.GetType().Name -eq 'SearchResponse') {
 
     $KRBflags=$null
     if(![string]::IsNullOrEmpty($EncType)) {
-        $KRBflags = enumerateKrb $EncType
+        $KRBflags = [KrbEnum]::EnumerateKrb($EncType)
     }
-    else { $KRBflags ="`n`tmsds-supportedencryptiontypes is not configured on the service account, Service tickets would be RC4 only!`n`tFor AES Support configure the msds-supportedencryptiontypes on the ADFS Service Account with a value of either:`n`t24(decimal) == AES only `n`t or `n`t28(decimal) == AES & RC4" }
-    "`nKerberos Encryption Types supported by Service Account: " + $KRBflags |Out-File Get-ServicePrincipalNames.txt -Append
+    else { $KRBflags ="`r`n`tmsds-supportedencryptiontypes is not configured on the service account, Service tickets would be RC4 only!`r`n`tFor AES Support configure the msds-supportedencryptiontypes on the ADFS Service Account with a value of either:`r`n`t24(decimal) == AES only `n`t or `n`t28(decimal) == AES & RC4" }
+    "`r`nKerberos Encryption Types supported by Service Account: " + $KRBflags |Out-File Get-ServicePrincipalNames.txt -Append
 }
 else { "Service Account query failed with error: "+$re.Message |Out-File Get-ServicePrincipalNames.txt -Append }
 
-    "`nChecking for Duplicate SPNs (current ServiceAccount will be included in this check):`n" |out-file Get-ServicePrincipalNames.txt -Append
+    "`r`nChecking for Duplicate SPNs (current ServiceAccount will be included in this check):`r`n" |out-file Get-ServicePrincipalNames.txt -Append
 
     $conn= (New-Object System.DirectoryServices.DirectoryEntry("GC://$domain/RootDSE")).dnshostname
     $filter= "(serviceprincipalname="+('*/'+(get-servicesettingsfromdb).ServiceSettingsData.SecurityTokenService.Host.Name)+")"
     [string]$att = "*"
     $re= LDAPQuery -filter $filter -att $att -conn $conn
 if ($re.GetType().Name -eq 'SearchResponse') {
-    $re.Entries |foreach { $_.distinguishedName |out-file Get-ServicePrincipalNames.txt -Append ; 
+    $re.Entries |ForEach-Object { $_.distinguishedName |out-file Get-ServicePrincipalNames.txt -Append ; 
         $_.Attributes.'serviceprincipalname'.GetValues('string')|out-file Get-ServicePrincipalNames.txt -Append }
 }
 else {"Duplicate SPN Query failed with error: "+$re.Message |Out-File Get-ServicePrincipalNames.txt -Append}
@@ -1205,8 +1231,7 @@ $TraceDir = $Path +"\temporary"
 # Save execution output to file
 Write-host "Creating Temporary Folder in $path" -ForegroundColor DarkCyan
 New-Item -ItemType directory -Path $TraceDir -Force | Out-Null
-
-Start-Transcript -Path "$TraceDir\transscript_output.txt" -Append -IncludeInvocationHeader |out-null
+if($PSVersionTable.PSVersion -le [Version]'4.0') { Start-Transcript -Path "$TraceDir\transscript_output.txt" -Append |out-null} else { Start-Transcript -Path "$TraceDir\transscript_output.txt" -Append -IncludeInvocationHeader |out-null}
 Write-Host "Debug logs will be saved in: " $Path -ForegroundColor DarkCyan
 Write-Host "Options selected:  TracingEnabled:"$TraceEnabled "NetworkTrace:" $NetTraceEnabled " ConfigOnly:" $ConfigOnly " PerfCounter:" $PerfCounter " LDAPTrace:" $LdapTraceEnabled -ForegroundColor DarkCyan
 Write-Progress -Activity "Preparation" -Status 'Setup Data Directory' -percentcomplete 5
