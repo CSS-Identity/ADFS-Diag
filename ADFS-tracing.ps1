@@ -22,6 +22,11 @@ param (
 )
 
 ##########################################################################
+#region Assembly Depencies
+Add-Type -AssemblyName System.ServiceProcess
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+
 #region Parameters
 [Version]$WinVer = [System.Environment]::OSVersion.Version
 $IsProxy = ((Get-WindowsFeature -name ADFS-Proxy).Installed -or (Get-WindowsFeature -name Web-Application-Proxy).Installed)
@@ -31,17 +36,6 @@ $WAPDebugEvents  = "Microsoft-Windows-CAPI2/Operational","AD FS Tracing/Debug","
 
 $ADFSExportEvents = 'System','Application','Security','AD FS Tracing/Debug','AD FS/Admin','Microsoft-Windows-CAPI2/Operational','Device Registration Service Tracing/Debug','DRS/Admin'
 $WAPExportEvents  = 'System','Application','Security','AD FS Tracing/Debug','AD FS/Admin','Microsoft-Windows-CAPI2/Operational','Microsoft-Windows-WebApplicationProxy/Admin','Microsoft-Windows-WebApplicationProxy/Session'
-
-#Import Modules deprecation Phase3: disable loader
-#If ([Bool]$psISE) {
-#    if ([string]::IsNullOrEmpty($PSScriptRoot)) {$hm = split-path ($psISE.CurrentFile.FullPath)}
-#    else {$hm=$PSScriptRoot}
-#}
-#else {
-#    if (![string]::IsNullOrEmpty($PSScriptRoot)){$hm=$PSScriptRoot}
-#    else {$hm=$pwd.Path}
-#}
-#if($PSVersionTable.PSVersion -le [Version]'4.0') { Import-Module $hm\helpermodules\krbtype_enum_v4.psm1 } else { Import-Module $hm\helpermodules\krbtype_enum_v5.psm1 }
 
 #Definition Netlogon Debug Logging
 $setDBFlag = 'DBFlag'
@@ -125,6 +119,7 @@ $Filescollector = 'copy /y %windir%\debug\netlogon.*  ',`
 
 #Enum forDotNetReleases
 #https://learn.microsoft.com/en-us/dotnet/framework/migration-guide/how-to-determine-which-versions-are-installed#version_table
+#https://learn.microsoft.com/de-de/lifecycle/products/microsoft-net-framework
 $fxversions = @{
         ".NET Framework 4.5 (all OS)"           = 378389
         ".NET Framework 4.5.1 (2012R2)"         = 378675
@@ -194,6 +189,7 @@ Add-Type -TypeDefinition @"
     [Flags]
     public enum EncTypes
     {
+        NULL_DEFAULTS_TO_RC4_HMAC = 0x0,
         DES_CBC_CRC = 0x01,
         DES_CBC_MD5 = 0x02,
         RC4_HMAC = 0x04,
@@ -207,10 +203,11 @@ Add-Type -TypeDefinition @"
 
     public class KrbEnum
     {
-        public static string EnumerateKrb(int encType)
+        public static string[] EnumerateKrb(int encType)
         {
-        EncTypes type = (EncTypes)encType;
-        return Regex.Replace(type.ToString(), ", ", " | ");
+        EncTypes  type = (EncTypes)encType;
+        string[] result = type.ToString().Split(new[] { ", " }, StringSplitOptions.RemoveEmptyEntries);
+        return result;
         }
     }
 
@@ -267,7 +264,6 @@ function WriteRichBoxText {
 }
 
 Function RunDialog {
-Add-Type -AssemblyName System.Windows.Forms
 [System.Windows.Forms.Application]::EnableVisualStyles()
 
 $Form                            = New-Object system.Windows.Forms.Form
@@ -448,7 +444,7 @@ Function Pause { param([String]$Message,[String]$MessageTitle,[String]$MessageC)
     Write-Host -NoNewline $MessageC -ForegroundColor Yellow
     do {$keyInfo = [Console]::ReadKey($false)} until ($keyInfo.Key -eq 'Y' -and $keyInfo.Modifiers -eq 'Control')
 }
-
+#endregion
 ##########################################################################
 #region Functions
 Function IsAdminAccount {
@@ -462,23 +458,32 @@ function LDAPQuery {
     [string]$conn,
     [string]$basedn
   )
-[System.Reflection.Assembly]::LoadWithPartialName("System.DirectoryServices.Protocols") | Out-Null
-[System.Reflection.Assembly]::LoadWithPartialName("System.Net")| Out-Null
+    [System.Reflection.Assembly]::LoadWithPartialName("System.DirectoryServices.Protocols") | Out-Null
+    [System.Reflection.Assembly]::LoadWithPartialName("System.Net")| Out-Null
 
-$c = New-Object System.DirectoryServices.Protocols.LdapConnection ($conn)
+    $c = New-Object System.DirectoryServices.Protocols.LdapConnection ($conn)
 
-$c.SessionOptions.SecureSocketLayer = $false;
-$c.SessionOptions.Sealing = $true
-$c.SessionOptions.Signing = $true
-$c.AuthType = [System.DirectoryServices.Protocols.AuthType]::Kerberos
-$c.Bind();
-$c.Timeout=[timespan]::FromSeconds(45)
-if([string]::IsNullOrEmpty($basedn)){ $basedn = (New-Object System.DirectoryServices.DirectoryEntry("LDAP://$conn/RootDSE")).DefaultNamingContext }
-$scope = [System.DirectoryServices.Protocols.SearchScope]::Subtree
-$r = New-Object System.DirectoryServices.Protocols.SearchRequest -ArgumentList $basedn,$filter,$scope,$att
-$re = try { $c.SendRequest($r) } catch { $_.Exception.InnerException }
-$c.Dispose()
-return $re
+    $c.SessionOptions.SecureSocketLayer = $false;
+    $c.SessionOptions.Sealing = $true
+    $c.SessionOptions.Signing = $true
+    $c.AuthType = [System.DirectoryServices.Protocols.AuthType]::Kerberos
+    $c.Bind();
+    #rather timeout than waiting to long...than possibly waiting for tor a query that may take longer to complete
+    $c.Timeout=[timespan]::FromSeconds(45)
+    
+    if([string]::IsNullOrEmpty($basedn)) { 
+        $basedn = (New-Object System.DirectoryServices.DirectoryEntry("LDAP://$conn/RootDSE")).DefaultNamingContext 
+    }
+    
+    $scope = [System.DirectoryServices.Protocols.SearchScope]::Subtree
+    $r = New-Object System.DirectoryServices.Protocols.SearchRequest -ArgumentList $basedn,$filter,$scope,$att
+    
+    $re = try { $c.SendRequest($r) } 
+          catch { $_.Exception.InnerException }
+
+    $c.Dispose()
+    
+    return $re
 }
 
 function get-Certificatesfromstore {
@@ -486,11 +491,12 @@ function get-Certificatesfromstore {
       [string]$StoreName
     )
   
-  $store = New-Object System.Security.Cryptography.X509Certificates.X509Store($StoreName,[System.Security.Cryptography.X509Certificates.StoreLocation]::LocalMachine)
-  $store.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadOnly)
-  $certcollection = $store.Certificates 
-  $store.Close()
-  return $certcollection
+    $store = New-Object System.Security.Cryptography.X509Certificates.X509Store($StoreName,[System.Security.Cryptography.X509Certificates.StoreLocation]::LocalMachine)
+    $store.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadOnly)
+    $certcollection = $store.Certificates 
+    $store.Close()
+    
+    return $certcollection
 }
 
 function Get-CertificatesByStore {
@@ -657,6 +663,7 @@ function Get-ADFSAzureMfaAdapterconfig {
 
 function GetProxySettings {
     $proxycfg = [PSCustomObject]@{}
+
     $IEProxyConfig = New-Object WinhttpCurrentUserIeProxyConfig
     [WinHttp]::WinHttpGetIEProxyConfigForCurrentUser([ref]$IEProxyConfig) |Out-Null
 
@@ -839,15 +846,17 @@ Function GatherTheRest {
         widlogs}
     }
     else {
-        Get-WebApplicationProxySslCertificate|foreach-object {if($_.CtlStoreName -eq "ClientAuthIssuer" ){Get-ClientAuthIssuerCertificates| out-file $env:COMPUTERNAME-Certificates-CliAuthIssuer.txt}} }
-        Get-DnsClientCache |Sort-Object -Property Entry |format-list |Out-File $env:COMPUTERNAME-DNSClient-Cache.txt
-        Get-ChildItem env: |Format-Table Key,Value -Wrap |Out-File $env:COMPUTERNAME-environment-variables.txt
-        Get-NetTCPConnection|Sort-Object -Property LocalAddress |out-file $env:COMPUTERNAME-NetTCPConnection.txt
-        get-service|Sort-Object -Property Status -Descending |Format-Table DisplayName,Status,StartType -autosize | out-file $env:COMPUTERNAME-services-running.txt
-        get-process |Sort-Object Id |Format-Table Name,Id, SessionId,WorkingSet -AutoSize |out-file $env:COMPUTERNAME-tasklist.txt
-        Get-Content $env:windir\system32\drivers\etc\hosts |out-file $env:COMPUTERNAME-hosts.txt
-        ((get-childitem $env:Windir\adfs\* -include *.dll,*.exe).VersionInfo |Sort-Object -Property FileVersion |Format-Table FileName, FileVersion) |out-file $env:COMPUTERNAME-ADFS-fileversions.txt
-        VerifyNetFX |format-list | out-file $env:COMPUTERNAME-DotNetFramework.txt
+        Get-WebApplicationProxySslCertificate|foreach-object { if($_.CtlStoreName -eq "ClientAuthIssuer" ) {Get-ClientAuthIssuerCertificates| out-file $env:COMPUTERNAME-Certificates-CliAuthIssuer.txt} } 
+    }
+    
+    Get-DnsClientCache |Sort-Object -Property Entry |format-list |Out-File $env:COMPUTERNAME-DNSClient-Cache.txt
+    Get-ChildItem env: |Format-Table Key,Value -Wrap |Out-File $env:COMPUTERNAME-environment-variables.txt
+    Get-NetTCPConnection|Sort-Object -Property LocalAddress |out-file $env:COMPUTERNAME-NetTCPConnection.txt
+    get-service|Sort-Object -Property Status -Descending |Format-Table DisplayName,Status,StartType -autosize | out-file $env:COMPUTERNAME-services-running.txt
+    get-process |Sort-Object Id |Format-Table Name,Id, SessionId,WorkingSet -AutoSize |out-file $env:COMPUTERNAME-tasklist.txt
+    Get-Content $env:windir\system32\drivers\etc\hosts |out-file $env:COMPUTERNAME-hosts.txt
+    ((get-childitem $env:Windir\adfs\* -include *.dll,*.exe).VersionInfo |Sort-Object -Property FileVersion |Format-Table FileName, FileVersion) |out-file $env:COMPUTERNAME-ADFS-fileversions.txt
+    VerifyNetFX |format-list | out-file $env:COMPUTERNAME-DotNetFramework.txt
     Pop-Location
 }
 
@@ -946,65 +955,231 @@ Function DisableLDAPTrace {
     }
 }
 
-function GetServiceAccountDetails {
-if (!$IsProxy) {
-    $SVCACC = ((get-wmiobject win32_service -Filter "Name='adfssrv'").startname)
-    if ($SVCACC.contains('@')) {
-        $filter ="(userprincipalname="+$SVCACC+")"
-        $domain = $SVCACC.Split('@')[1]
+function  Test-KRBEncTypePolicy {
+    # Specify the registry key path and the value name
+    $keyPath = "SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System\Kerberos\Parameters\"
+    $valueName = "SupportedEncryptionTypes"
+    #by default all Enctypes are enabled .This may change in future we assume defaults unless a policy is configured
+    $EncType = 31
+
+    $key = [Microsoft.Win32.Registry]::LocalMachine.OpenSubKey($keyPath)
+
+    #if policy key exists try to get the value
+    if (($key.Name)) {
+        if ($key.GetValueNames() -icontains $valueName) {
+            try {
+                [int]$EncType= $key.GetValue($valueName);
+                #close key handle when done
+                $key.Close()
+                }
+            catch { 
+                #regvalue is not defined only thing we want to do is to close key handle
+                $key.Close()
+            }  
+        }
     }
-    if ($SVCACC.contains('\')) {
-        $filter ="(samaccountname="+$SVCACC.Split('\')[1]+")"
-        $domain = $SVCACC.Split('\')[0]
+
+    #do we still need to look into the classic path  HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\Lsa\Kerberos\Parameters ? 
+    #if yes we will loop it in here.
+    
+    #desktop GPO allows to configure ETypes only and FutureFlags. if the value is greater than 0x1f in GPO we must expect that Futureflags had been set
+    #remove the futureflag from enumeration
+
+    if ($EncType -gt 31) {
+        $EncType = $EncType - 2147483616
     }
+    #watch out if there is someone configuring the regkeys manually instead via GPO then it might be they use wrong or negative values
+    #we add error handling for such cases if we get reports such a misconfig is placed. Maybe we simply add the raw regkey exports
+    # finally convert to enum and return
+   return ([KrbEnum]::EnumerateKrb($EncType))
 
-$conn= (New-Object System.DirectoryServices.DirectoryEntry("LDAP://$domain/RootDSE")).dnshostname
-[string]$att = "*"
-
-"Performing LDAP Lookup of ADFS Service Account: " + $SVCACC | out-file Get-ServicePrincipalNames.txt -Append
-
-$re= LDAPQuery -filter $filter -att $att -conn $conn
-$gmsa =$false
-
-if($re.GetType().Name -eq 'SearchResponse') {
-        $gmsa = [Bool]($re.Entries.Attributes.objectclass.GetValues('string') -eq 'msDS-GroupManagedServiceAccount')
-        "Service Account is GMSA: " + $gmsa | out-file Get-ServicePrincipalNames.txt -Append
-
-    if($gmsa -eq $true) {
-        $adl = new-object System.DirectoryServices.ActiveDirectorySecurity
-        $adl.SetSecurityDescriptorBinaryForm($re.Entries[0].Attributes.'msds-groupmsamembership'[0])
-        "`r`nGMSA allowed Hosts: `n" + $adl.AccessToString | Format-Table |out-file Get-ServicePrincipalNames.txt -Append
-    }
-    else {"`r`nService Account used is a generic User"| out-file Get-ServicePrincipalNames.txt -Append}
-
-    "`r`nServicePrincipalNames registered: " |out-file Get-ServicePrincipalNames.txt -Append
-    $re.Entries.Attributes.serviceprincipalname.GetValues('string') |out-file Get-ServicePrincipalNames.txt -Append
-
-    $EncType=$null
-    Try { $EncType= [int]::Parse($re.Entries[0].Attributes.'msds-supportedencryptiontypes'.GetValues('string')) }
-    Catch { "We handled an exception when reading msds-supportedencryptiontypes, which implies the attribute is not configured. This is not a critical error"; }
-
-    $KRBflags=$null
-    if(![string]::IsNullOrEmpty($EncType)) {
-        $KRBflags = [KrbEnum]::EnumerateKrb($EncType)
-    }
-    else { $KRBflags ="`r`n`tmsds-supportedencryptiontypes is not configured on the service account, Service tickets would be RC4 only!`r`n`tFor AES Support configure the msds-supportedencryptiontypes on the ADFS Service Account with a value of either:`r`n`t24(decimal) == AES only `n`t or `n`t28(decimal) == AES & RC4" }
-    "`r`nKerberos Encryption Types supported by Service Account: " + $KRBflags |Out-File Get-ServicePrincipalNames.txt -Append
 }
-else { "Service Account query failed with error: "+$re.Message |Out-File Get-ServicePrincipalNames.txt -Append }
 
-    "`r`nChecking for Duplicate SPNs (current ServiceAccount will be included in this check):`r`n" |out-file Get-ServicePrincipalNames.txt -Append
 
-    $conn= (New-Object System.DirectoryServices.DirectoryEntry("GC://$domain/RootDSE")).dnshostname
-    $filter= "(serviceprincipalname="+('*/'+(get-servicesettingsfromdb).ServiceSettingsData.SecurityTokenService.Host.Name)+")"
+function Get-ServiceAccountDetails {
+    #initialize  object to store the result: gsad is the accronym of the function name ( g = get, sa = service account, d = details )
+    $gsad = New-Object -TypeName PSObject
+
+    #only execute if we are not on proxy/wap
+    if (!$IsProxy) {
+        #get currently config service account
+        $SVCACC = ((get-wmiobject win32_service -Filter "Name='adfssrv'").startname)
+        
+        #detect name format UPN vs Legacy
+        if ($SVCACC.contains('@')) {
+            $filter ="(userprincipalname="+$SVCACC+")"
+            $domain = $SVCACC.Split('@')[1]
+        }
+        
+        if ($SVCACC.contains('\')) {
+            $filter ="(samaccountname="+$SVCACC.Split('\')[1]+")"
+            $domain = $SVCACC.Split('\')[0]
+        }
+    
+
+    $conn= (New-Object System.DirectoryServices.DirectoryEntry("LDAP://$domain/RootDSE")).dnshostname
     [string]$att = "*"
+
+    $gsad | Add-Member -MemberType NoteProperty -Name "ADFS Service Account" -Value $SVCACC 
+
+    #Performing LDAP Lookup of ADFS Service Account
     $re= LDAPQuery -filter $filter -att $att -conn $conn
-if ($re.GetType().Name -eq 'SearchResponse') {
-    $re.Entries |ForEach-Object { $_.distinguishedName |out-file Get-ServicePrincipalNames.txt -Append ; 
-        $_.Attributes.'serviceprincipalname'.GetValues('string')|out-file Get-ServicePrincipalNames.txt -Append }
-}
-else {"Duplicate SPN Query failed with error: "+$re.Message |Out-File Get-ServicePrincipalNames.txt -Append}
-}
+    #1st test if its a GMSA 
+    $gmsa =$false
+
+    if(($re.GetType().Name -eq 'SearchResponse') -and ($re.Entries.Count -eq 1)) {
+        $gmsa = [Bool]($re.Entries.Attributes.objectclass.GetValues('string') -eq 'msDS-GroupManagedServiceAccount')
+        $gsad | Add-Member -MemberType NoteProperty -Name "IsManagedServiceAccount" -Value $gmsa
+
+        if($gmsa -eq $true) {
+            $adl = new-object System.DirectoryServices.ActiveDirectorySecurity
+            $adl.SetSecurityDescriptorBinaryForm($re.Entries[0].Attributes.'msds-groupmsamembership'[0])
+            $gsad | Add-Member -MemberType NoteProperty -Name "GMSA allowed Hosts" -value ($adl.AccessToString)
+        }
+
+        $gsad | Add-Member -MemberType NoteProperty -Name "OnAccountRegisteredSPN" -Value ($re.Entries.Attributes.serviceprincipalname.GetValues('string'))
+
+        #whilst we are at it get the kerberos encryption type value if there is one configured
+        Try { 
+            $EncType= [int]::Parse($re.Entries[0].Attributes.'msds-supportedencryptiontypes'.GetValues('string')) 
+        } Catch { 
+        #if we dont find a configured value we must assume its not set so lets use -1 explicitly
+            $EncType=-1
+        }
+
+    } else {
+        if ($re.Response.ResultCode -eq "NoSuchObject") {
+            $gsad | Add-Member -MemberType NoteProperty -Name "ServiceAccount query failed" -value "Service Account not found. Ldap Error:`r`n$($re.Response.ErrorMessage)"
+        } else {
+            $gsad | Add-Member -MemberType NoteProperty -Name "ServiceAccount query failed" -value "Unable to resolve the Service Account. Use AD tools like 'setspn' or 'dsa.msc' to verify the Account exists in AD."
+        }
+        # if we failed to find the account use -2 so we later dont call enum but log appropropriate message
+        $EncType=-2
+    }
+    
+    #refined the Dupe SPN check to not only rely on get-ADFSProperties alone for building the SPN query...this may not work in all cases
+    #we now go by the order: http hostname binding -> ADFS Properties -> lastly directly from database
+    $hostname = Get-Adfssslcertificate | foreach-object { 
+                $temphost = @()
+                #we filter out the localhost, classic CBA endpoing on 49443,so should  end up with only one hostname. 
+                if( ($_.PortNumber -eq 443) -and ($_.AppId -eq '5d89a20c-beab-4389-9447-324788eb944a') -and ($_.HostName -inotlike 'localhost') ) { 
+                    $temphost += ($_.HostName)
+                }
+        
+                if ($temphost.count -eq 1 ) { 
+                    return $temphost
+                }
+               }
+    
+    #hostname may still be empty so we may have failed to find the bindings.
+    #let assume ADFS service is running and we can query adfsproperties from powershell
+    if ($null -eq $hostname ) {
+        try {  
+            $hostname = (get-adfsproperties).hostname 
+        } catch { }
+    }
+
+    # if still no hostname last attempt to get the farmname is from DB 
+    # this is best effort here since we may not be able to connect to DB if SQL is used and account has no logon/is no DBA
+    # or if WID but we are not local admin respectively WID may not be started or no DB exists like on initial setup
+    if ($null -eq $hostname ) {
+        try {
+            $hostname = (get-servicesettingsfromdb).ServiceSettingsData.SecurityTokenService.Host.Name
+        } catch {}
+    }
+
+    #if we have a hostname lets attempt to perform a check for dupe SPNs
+    #first check create the connection object. Use GlobalCatalog as we may have a dupe in a child domain of the forest
+
+    if (!($null -eq $hostname )) {
+        $gconn= (New-Object System.DirectoryServices.DirectoryEntry("GC://$domain/RootDSE")).dnshostname
+        $filter= [string]::format("(serviceprincipalname=*/{0})", $hostname ) 
+        [string]$att = "*"
+    }
+    
+    #if we dont have a hostname we dont create the ldap connection and filter so we dont need to run the query after all
+    
+    if (!($null -eq $gconn)) {
+        
+        $re= LDAPQuery -filter $filter -att $att -conn $gconn
+    
+        if ($re.GetType().Name -eq 'SearchResponse' -And ($re.entries.count -ge 1)) {
+            $obj= $re.Entries | ForEach-Object { 
+                                [String]::Format("`r`nAccount: {0}`r`nSPNs : {1}`n",
+                                            $_.distinguishedName ,  
+                                            ($_.Attributes.'serviceprincipalname'.GetValues('string') -join " ; ") )
+                                            }
+            $gsad | Add-Member -MemberType NoteProperty -Name "Duplicate SPN" -Value $obj
+        } 
+
+    }
+
+    #Finally validate that Kerberos Etype Config is sound and we have a matching config between OS and Service Account
+    #some message strings
+    $RC4NotSetMsg="The Service Account is not configured for AES support. Service tickets will be RC4 encrypted!
+    `r`nWe recommend configuring the ADFS Service Account for AES Support.`r`nIn Active Directory configure the attribute 'msds-supportedencryptiontypes' for the ADFS ServiceAccount with a value of:`r`n24(decimal) => AES only `n or `n28(decimal) => AES & RC4" 
+    
+    $RC4NoPolicysupMsg="The ADFS service account is not configured properly. Local policy/registry for KerberosEncryptionTypes disabled RC4 support,`r`nbut the service account has not been configured for AES support.
+    `r`nThis configuration can lead to authentication failures and other erroneous behavior and MUST be corrected.
+    `r`nWe recommend configuring the ADFS Service Account for AES Support.`r`nIn Active Directory configure the attribute 'msds-supportedencryptiontypes' for the ADFS ServiceAccount with a value of:`r`n24(decimal) => AES only `n or `n28(decimal) => AES & RC4" 
+
+    
+    #get KrbConfig from OS Policy
+    $HostKrbCfg = Test-KRBEncTypePolicy 
+
+    #theoretically this cannot be null unless the module failed
+    if (!($null -eq $HostKrbCfg)) {
+         $gsad | Add-Member -MemberType NoteProperty -Name "KrbEtype from OS (Policy)" -Value $($HostKrbCfg -join " | ") 
+    }
+
+    #check etypes from ServiceAccountQuery if not set or explicitly 0 default to RC4
+    #if we failed to find service account previously..skip etype config evaluation
+
+    switch ($EncType) {   
+        0  { $SvcKrbCfg = "RC4_HMAC"; 
+             $gsad | Add-Member -MemberType NoteProperty -Name "KrbEtype from ServiceAccount" -Value "explicitly set to 0. Defaulting to RC4_HMAC"  
+           } 
+        -1 { $SvcKrbCfg = "RC4_HMAC";
+             $gsad | Add-Member -MemberType NoteProperty -Name "KrbEType from ServiceAccount" -Value "not configured. Defaulting to RC4_HMAC"  
+           }
+        -2 { #we failed to find service account previously..nothing to evaluate here
+             $gsad | Add-Member -MemberType NoteProperty -Name "KrbEType from ServiceAccount" -Value "Failed to enumerate ServiceAccount"  
+           }  
+        default { $SvcKrbCfg = [KrbEnum]::EnumerateKrb($EncType) 
+                  $gsad | Add-Member -MemberType NoteProperty -Name "KrbEType from ServiceAccount" -Value $($SvcKrbCfg -join " | ")
+                } 
+    }
+
+    if (!($null -eq $HostKrbCfg) -and !($null -eq $SvcKrbCfg)) {
+        $commonItems = [System.Linq.Enumerable]::Intersect(
+                       [System.Collections.Generic.List[object]]@($SvcKrbCfg),
+                       [System.Collections.Generic.List[object]]@($HostKrbCfg)
+                       )
+    }
+    
+    #we have intersection and AES is listed --> AES is used
+    if ($commonItems.Count -gt 0 -and $commonItems -like "*AES*") {
+        $gsad | Add-Member -MemberType NoteProperty -Name "Kerberos EncryptionType expected" -Value "AES"
+
+    #we have intersection but not AES but RC4 or maybe even weaker ..log warning and recommend AES
+    } elseif ( $commonItems.Count -gt 0 -and ($commonItems -notlike "*AES*") ) {
+        $gsad | Add-Member -MemberType NoteProperty -Name "KrbEType expected" -Value "RC4"
+        $gsad | Add-Member -MemberType NoteProperty -Name "Warning" -Value $RC4NotSetMsg
+    
+    #no intersection at all. This does not look good and auth will break . log error
+    } elseif ( $null -eq $commonItems.Count -and ($SvcKrbCfg -like "*RC4*") -and ($HostKrbCfg -notlike "*RC4*") ) {
+        $gsad | Add-Member -MemberType NoteProperty -Name "KrbEType expected" -Value "RC4"
+        $gsad | Add-Member -MemberType NoteProperty -Name "Error" -Value $RC4NoPolicysupMsg
+
+    #we should only get here if we have no Service Account queried (notFound/NotExisting)
+    }  else  {
+        $gsad | Add-Member -MemberType NoteProperty -Name "KrbEType expected" -Value "Cannot predict KrbEType usage. A previous query failed"
+
+    }
+
+   }
+
+   Return $gsad
 }
 
 Function GetADFSConfig {
@@ -1036,7 +1211,7 @@ Function GetADFSConfig {
         }
 	    Get-AdfsSyncProperties | format-list * | Out-file "Get-AdfsSyncProperties.txt"
 	    Get-AdfsSslCertificate | format-list * | Out-file "Get-AdfsSslCertificate.txt"
-        GetServiceAccountDetails
+        Get-ServiceAccountDetails | format-list * | Out-file "Get-ServiceAccountDetails.txt"
 
 
 	if ($WinVer -ge [Version]"10.0.14393") 
@@ -1108,7 +1283,7 @@ Function EndOfCollection {
     $datafile = "$(Join-Path -Path $path -ChildPath $zip).zip"
     Stop-Transcript |Out-Null
     Write-host "Creating Archive File" -ForegroundColor Green
-    Add-Type -Assembly "System.IO.Compression.FileSystem" ;
+
     [System.IO.Compression.ZipFile]::CreateFromDirectory($TraceDir, $datafile)
 
     Write-host "Archive File created in $datafile" -ForegroundColor Green
@@ -1269,7 +1444,7 @@ if($TraceEnabled) {
 Write-Progress -Activity "Ready for Repro" -Status 'Waiting for Repro' -percentcomplete 50
 $MessageTitle = "Data Collection Running"
 $MessageIse = "Data Collection is currently running`nProceed  reproducing the problem now or`n`nPress OK to stop the collection...`n"
-$MessageC = "Data Collection is currently running`nProceed  reproducing the problem now or `n`nPress press CTRL+Y to stop the collection...`n"
+$MessageC = "Data Collection is currently running`nProceed  reproducing the problem now or `n`nPress CTRL+Y to stop the collection...`n"
 Pause $MessageIse $MessageTitle $MessageC
 }
 

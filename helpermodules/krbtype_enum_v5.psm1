@@ -17,5 +17,7 @@
 }
 function enumerateKrb ([int]$EncType)
 {
-  return [regex]::replace(([EncTypes]$EncType), ", "," | ")
+  [string]$ety = ([EncTypes]$EncType)
+  # | ForEach-Object { $_.Trim() }
+  return $ety.Split(",").TrimEnd().TrimStart() 
 }

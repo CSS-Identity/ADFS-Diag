@@ -175,8 +175,8 @@ When the scripts finished, you can upload the compressed file to the workspace p
 | Get-AdfsWebApplicationProxyRelyingPartyTrust.txt | output for the WAP Pre-Authentication relying party configuration  |
 | Get-AdfsWebConfig.txt | shows currently active default web theme and cookie settings for HomeRealmDiscovery automation |
 | Get-AdfsWebTheme.txt | a list of configured ADFS Web Themes |
-| Get-ServicePrincipalNames.txt | Contains details about the ADFS Service Account configuration in AD DS |
-| netlogon.bak | netlogon debug log backup file (usually created if the log file itself exceeds 100mb during a longer tracing period |
+| Get-ServiceAccountDetails.txt | Contains details about the ADFS Service Account configuration in AD DS and predicts Kerberos Encryption used |
+| netlogon.bak | netlogon debug log backup file (usually created if the log file itself exceeds 100mb during a longer tracing period) |
 | netlogon.log | netlogon debug log informations |
 | Get-WebApplicationProxyApplication.txt | Lists the published applications |
 | Get-WebApplicationProxyAvailableADFSRelyingParty.txt | list of available relying parties configured on a federation server|
@@ -185,7 +185,7 @@ When the scripts finished, you can upload the compressed file to the workspace p
 | Get-WebApplicationProxySslCertificate.txt | binding information for the SSL certificate for federation server proxy |
 | HOSTNAME-Microsoft.IdentityServer.ProxyService.exe.config | Proxy Service Configuration file |
 | transscript_output.txt | diagnostics/telemetry about the execution of the script |
-| Wid \ error<int>.log | WID error logs (only collected if WID Deployments and if the cummulative size of the files is <=10mb |
+| Wid \ error<int>.log | WID error logs (only collected if WID Deployments and if the cummulative size of the files is <=10mb) |
 | LocaleMetaData\ AD FS Tracing-Debug_1033.MTA | ADFS Tracing eventlog in a localized format (system language) |
 | LocaleMetaData\ AD FS-Admin_1033.MTA | ADFS Admin eventlog in a localized format (system language)  |
 | LocaleMetaData\ Application_1033.MTA | Application eventlog in a localized format (system language)  |
