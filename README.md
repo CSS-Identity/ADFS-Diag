@@ -20,7 +20,7 @@ Once the tracing has completed, the script will automatically generate a archive
 ### Script usage
 ---
 ##### Requirements:
-- the Script supports ADFS on Windows Server 2012R2 / Windows Server 2016 / Windows Server 2019
+- the Script supports ADFS on Windows Server 2012R2 / Windows Server 2016 / Windows Server 2019 / Windows Server 2022 and Windows Server 2025
 - local administrator privileges are required to run the scripts at minimum.
 - Preferably the account is also a Domain User
 - a miminum of 5GB of free diskspace on the volume for the target folder when running the tracing for a longer period
@@ -42,18 +42,21 @@ When executing the Script without any parameters the script will Render a Forms 
 | Runtime Tracing  | In this mode the script will collect all data available in Configuration Only and enables additional debug traces for http.sys, schannel, kerberos/ntlm and ADFS and DRS Debug Event Tracing |
 | include Network Traces  | This option is only available for a runtime trace and you can opt-in if you want to collect a network trace |
 | include Performance Counters  | This option is only available for a runtime trace and you can opt-in to collect ADFS performance counters for the duration of the tracing |
+| LDAP Traces | Enables Debug logging for LDAP and may be used when debugging ADFS Setup issues and other LDAP dependent activities.<br>This option is unavailable on Web Application Proxy Servers<br> <code style="color : Orange">Warning:This option may cause a service restart when started</code> |
+| WAP Traces | Enables Advanced Debug logging for Web Application Proxy Server Core to troubleshoot issues to WAP published applications <br> like Exchange OWA, Sharepoint On-premise, etc...<br>Only available on Web Application Proxy Servers |
 | Textbox/Browse | Provide the path to the Destination folder or alternatively you can use the Filebrowser to select the folder where the data will be stored |
 
 
 ##### Running the script from console:
 The script accepts four parameters similar to the UI
-| Options | Value/Description
+| Options | Description
 | :-------- | :--------- |
-| -Path | The absolute path to the folder where the files should be stored. If the parameter is omitted the script will automatically run in interactive mode ignoring other switch parameters |
+| -Path | Provide the absolute path to the folder where the files should be stored. <br>If this parameter is omitted the script will automatically run in interactive mode ignoring other switch parameters |
 | -Tracing |  if omitted the script will run in a config only mode ignoring any one of the optional trace switches |
 | -NetworkTracing | set this switch to enable network tracing; this only works if -Tracing is provided |
 | -PerfTracing | set this switch to enable performance counter collection; this only works if -Tracing is provided |
-| -LDAPTracing | set this switch to enable LDAP debug tracing; this only works if -Tracing is provided|
+| -LDAPTracing | set this switch to enable LDAP debug tracing; this only works if -Tracing is provided and when executed on ADFS Servers|
+| -WAPTracing | set this switch to enable LDAP debug tracing; this only works if -Tracing is provided and when executed on WAP Servers|
 
 During runtime and in particular the trace scenario the script will begin pulling initial static data.
 It will Pause the execution to give you the time to configure the other servers, if tracing on multiple machines is required.
@@ -136,6 +139,7 @@ When the scripts finished, you can upload the compressed file to the workspace p
 | http_trace.etl | http driver trace in binary format |
 | schannel.etl | schannel (TLS/SSL provider) debug file in a binary format |
 | ldap.etl | LDAP debug tracing file in a binary format |
+| wap_trace.etl | Web Application Core debug tracing in a binary format|
 | Get-AdfsAccessControlPolicy.txt | contains list of all Access Control Policies currently defined in ADFS |
 | Get-AdfsAdditionalAuthenticationRule.txt | Contains details of global MFA claim Rules if configured |
 | Get-AdfsApplicationGroup.txt | summary of configured OAUTH2/OpenID application groups |
@@ -183,14 +187,7 @@ When the scripts finished, you can upload the compressed file to the workspace p
 | Get-WebApplicationProxyConfiguration.txt | Global Web Application Proxy settings |
 | Get-WebApplicationProxyHealth.txt | Health status of the Web Application Proxy server |
 | Get-WebApplicationProxySslCertificate.txt | binding information for the SSL certificate for federation server proxy |
+| Get-WebApplicationProxyAdfsTimeSkew.txt | the script attempts to call the backend ADFS for testing on potential timeskews |
 | HOSTNAME-Microsoft.IdentityServer.ProxyService.exe.config | Proxy Service Configuration file |
 | transscript_output.txt | diagnostics/telemetry about the execution of the script |
 | Wid \ error<int>.log | WID error logs (only collected if WID Deployments and if the cummulative size of the files is <=10mb) |
-| LocaleMetaData\ AD FS Tracing-Debug_1033.MTA | ADFS Tracing eventlog in a localized format (system language) |
-| LocaleMetaData\ AD FS-Admin_1033.MTA | ADFS Admin eventlog in a localized format (system language)  |
-| LocaleMetaData\ Application_1033.MTA | Application eventlog in a localized format (system language)  |
-| LocaleMetaData\ Device Registration Service Tracing-Debug_1033.MTA | DRS Tracing eventlog in a localized format (system language)  |
-| LocaleMetaData\ DRS-Admin_1033.MTA | DRS Admin eventlog in a localized format (system language)  |
-| LocaleMetaData\ Microsoft-Windows-CAPI2-Operational_1033.MTA | CAPI eventlog in a localized format (system language)  |
-| LocaleMetaData\ Security_1033.MTA | Security eventlog in a localized format (system language) |
-| LocaleMetaData\ System_1033.MTA | System eventlog in a localized format (system language)  |

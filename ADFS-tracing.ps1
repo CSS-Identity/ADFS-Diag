@@ -18,6 +18,9 @@ param (
     [switch]$LDAPTracing,
 
     [Parameter(Mandatory=$false)]
+    [switch]$WAPTracing,
+
+    [Parameter(Mandatory=$false)]
     [switch]$PerfTracing
 )
 
@@ -68,6 +71,14 @@ $LogmanOff = 'logman stop "schannel" -ets',`
 #ldap debug traces; process filters are set in the function to enable ldap tracing
 $ldapetlOn='logman create trace "adfs_ldap" -ow -o .\ldap.etl -p "Microsoft-Windows-ADSI" 0xffffffffffffffff 0xff -nb 16 16 -bs 1024 -mode Circular -f bincirc -max 4096 -ets',`
 'logman update trace "adfs_ldap" -p "Microsoft-Windows-LDAP-Client" 0xffffffffffffffff 0xff -ets'
+
+#Web Application Proxy Traces
+$WAPTraceOn = 'logman create trace "WebAppProxy" -ow -o .\wap_trace.etl -p {66C13383-C691-4CF7-B404-7E172E2DC0C2} 0xffffffffffffffff 0xff -nb 16 16 -bs 1024 -mode Circular -f bincirc -max 4096 -ets ',`
+'logman update trace "WebAppProxy" -p {7B879E0C-83A7-4DCA-8492-063A257D4288} 0xffffffffffffffff 0xff -ets',`
+'logman update trace "WebAppProxy" -p {DBD9121B-9FC9-4725-B35D-EC411FC28196} 0xffffffffffffffff 0xff -ets',`
+'logman update trace "WebAppProxy" -p {2C7484EA-F1AC-4A4F-8FF0-39222A187F0D} 0xffffffffffffffff 0xff -ets',`
+'logman update trace "WebAppProxy" -p {6519B1CA-2DD1-45D8-A53A-34D03B24EF58} 0xffffffffffffffff 0xff -ets'
+$WapTraceOff = "logman -stop WebAppProxy -ets" 
 
 $ldapetlOff= 'logman stop "adfs_ldap" -ets'
 
@@ -308,7 +319,7 @@ for ($i = 0; $i -lt $cScenario.Length; $i++) {
       }
     $Scenario.Controls.Add($checkBox)
 }
-
+# Options GroupBox
 $Options = New-Object System.Windows.Forms.GroupBox
 $Options.Text = "Options"
 $Options.Location = New-Object System.Drawing.Point(15, 430) # Positioned below the ScenarioGroup
@@ -326,27 +337,27 @@ for ($i = 0; $i -lt $cOptions.Length; $i++) {
   switch -Wildcard ($cOptions[$i]) {
     "include Network Traces" { Set-Variable -Name NetTrace -Value $checkBox -Force }
     "include Performance Counter" { Set-Variable -Name perfc -Value $checkBox -Force }
-    #"LDAP Traces (if requested by Engineer)" { Set-Variable -Name ldapt -Value $checkBox -Force }
     }
   $Options.Controls.Add($checkBox)
 }
-#####
+##### Advanced Options GroupBox
 $aOptions = New-Object System.Windows.Forms.GroupBox
-$aOptions.Text = "advanced Options (can cause service restarts)"
+$aOptions.Text = if(!$IsProxy){ "advanced Options (can cause service restarts)"} else { "advanced Options" }
 $aOptions.Location = New-Object System.Drawing.Point(500, 430) # Positioned below the ScenarioGroup
 $aOptions.Size = new-object System.Drawing.Size(285, 50) # Adjust the size as needed
 
-$caOptions = @("LDAP Traces")
+$caOptions= if(!$IsProxy){ "LDAP Traces" } else { "WAP Traces" }
 
-for ($i = 0; $i -lt $caOptions.Length; $i++) {
+for ($i = 0; $i -lt $caOptions.count; $i++) {
   $checkBox = New-Object System.Windows.Forms.CheckBox
-  $checkBox.Text = $caOptions[$i]
+  $checkBox.Text = $caOptions
   $checkBox.AutoSize = $true
   $checkBox.Enabled= $false
   $checkBox.Location = New-Object System.Drawing.Point(($xOffset + ($i * $checkBoxWidth)), $yOffset)
 
-  switch -Wildcard ($caOptions[$i]) {
+  switch -Wildcard ($caOptions) {
     "LDAP Traces" { Set-Variable -Name ldapt -Value $checkBox -Force }
+    "WAP Traces" { Set-Variable -Name wapt -Value $checkBox -Force }
     }
   $aOptions.Controls.Add($checkBox)
 }
@@ -389,16 +400,39 @@ $cnlbtn.DialogResult             = [System.Windows.Forms.DialogResult]::Cancel
 
 $Form.controls.AddRange(@($Description,$Scenario,$Options,$aOptions,$Okbtn,$cnlbtn,$label))
 
-$cfgonly.Add_CheckStateChanged({ if ($cfgonly.checked)
-                                {$TracingMode.Enabled = $false; $NetTrace.Enabled = $false; $perfc.Enabled = $false; $ldapt.Enabled = $false}
-                                else
-                                {$TracingMode.Enabled = $true; $NetTrace.Enabled = $false}
+$cfgonly.Add_CheckStateChanged({ if ($cfgonly.checked) {
+                                    $TracingMode.Enabled = $false; 
+                                    $NetTrace.Enabled = $false; 
+                                    $perfc.Enabled = $false; 
+                                    if(!$IsProxy){ $ldapt.Enabled=$false}else {$wapt.Enabled = $false}
+                                }
+                                else {
+                                    $TracingMode.Enabled = $true; $NetTrace.Enabled = $false
+                                }
                               })
 
-$TracingMode.Add_CheckStateChanged({ if ($TracingMode.checked)
-                                {$cfgonly.Enabled = $false; $NetTrace.Enabled = $true;$NetTrace.Checked = $true; $perfc.Enabled = $true; if(!$IsProxy){ $ldapt.Enabled=$true}}
-                                else
-                                {$cfgonly.Enabled = $true; $NetTrace.Checked = $false; $NetTrace.Enabled = $false;$perfc.Checked = $false; $perfc.Enabled = $false;$ldapt.Checked = $false; $ldapt.Enabled = $false;  }
+$TracingMode.Add_CheckStateChanged({ if ($TracingMode.checked){
+                                    $cfgonly.Enabled = $false; 
+                                    $NetTrace.Enabled = $true;
+                                    $NetTrace.Checked = $true; 
+                                    $perfc.Enabled = $true; 
+                                    if(!$IsProxy){ $ldapt.Enabled=$true}else {$wapt.Enabled = $true}
+                                }
+                                else {
+                                    $cfgonly.Enabled = $true;
+                                    $NetTrace.Checked = $false;
+                                    $NetTrace.Enabled = $false;
+                                    $perfc.Checked = $false; 
+                                    $perfc.Enabled = $false;
+                                    if(!$IsProxy) { 
+                                        $ldapt.Checked = $false;
+                                        $ldapt.Enabled = $false;
+                                    }
+                                    else {
+                                        $wapt.Checked = $false;
+                                        $wapt.Enabled = $false;
+                                    }
+                                }
                               })
 
 #For future Versions we may add addional dependencies to the Network Trace.
@@ -422,6 +456,7 @@ if ($FormsCompleted -eq [System.Windows.Forms.DialogResult]::OK) {
             ConfigOnly = $cfgonly.Checked
             PerfCounter =$perfc.Checked
             LdapTraceEnabled=$ldapt.Checked
+            WAPTraceEnabled=$wapt.Checked
         }
         $Form.dispose()
     }
@@ -468,7 +503,7 @@ function LDAPQuery {
     $c.SessionOptions.Signing = $true
     $c.AuthType = [System.DirectoryServices.Protocols.AuthType]::Kerberos
     $c.Bind();
-    #rather timeout than waiting to long...than possibly waiting for tor a query that may take longer to complete
+    #rather timeout than waiting for too long...
     $c.Timeout=[timespan]::FromSeconds(45)
     
     if([string]::IsNullOrEmpty($basedn)) { 
@@ -670,15 +705,20 @@ function GetProxySettings {
     $WINHTTPPROXY = New-Object WINHTTP_PROXY_INFO
     [WinHttp]::WinHttpGetDefaultProxyConfiguration([ref]$WINHTTPPROXY) |Out-Null
 
-    $proxycfg| Add-Member -MemberType NoteProperty -Name 'IE_ProxySetting_CurrentUser' -Value '------------------'
-    $proxycfg| Add-Member -MemberType NoteProperty -Name 'IE_ProxySetting_AutoDetect' -Value $IEProxyConfig.AutoDetect
-    $proxycfg| Add-Member -MemberType NoteProperty -Name 'IE_ProxySetting_AutoConfigUrl' -Value $IEProxyConfig.AutoConfigUrl
-    $proxycfg| Add-Member -MemberType NoteProperty -Name 'IE_ProxySetting_ProxName' -Value $IEProxyConfig.Proxy
-    $proxycfg| Add-Member -MemberType NoteProperty -Name 'IE_ProxySetting_ProxyBypass' -Value $IEProxyConfig.ProxyBypass
-    $proxycfg| Add-Member -MemberType NoteProperty -Name 'WinHTTP_Proxy_Setting' -Value '------------------'
-    $proxycfg| Add-Member -MemberType NoteProperty -Name 'WinHTTP_Proxy_AutoDetect' -Value $WINHTTPPROXY.AccessType
-    $proxycfg| Add-Member -MemberType NoteProperty -Name 'WinHTTP_Proxy_ProxName' -Value $WINHTTPPROXY.Proxy
-    $proxycfg| Add-Member -MemberType NoteProperty -Name 'WinHTTP_Proxy_ProxyBypass' -Value $WINHTTPPROXY.Bypass
+    $proxycfg = @"
+IE ProxySetting of current CurrentUser: [$([System.Security.Principal.WindowsIdentity]::GetCurrent().Name)]
+=============================================================
+AutoDetect:          $($IEProxyConfig.AutoDetect)
+AutoConfigUrl:       $($IEProxyConfig.AutoConfigUrl)
+ProxyName:           $($IEProxyConfig.Proxy)
+ProxyBypass:         $($IEProxyConfig.ProxyBypass)
+
+WinHTTP Proxy Setting
+=============================================================
+AutoDetect:          $($WINHTTPPROXY.AccessType)
+ProxyName:           $($WINHTTPPROXY.Proxy)
+ProxyBypass:         $($WINHTTPPROXY.Bypass)
+"@
 
     return $proxycfg
 }
@@ -766,7 +806,7 @@ Function DisableNetlogonDebug {
         else { $subkey.SetValue($setNLMaxLogSize,$orgNLMaxLogSize,$setvaltype2) }
         $key.Close()
     }
-    else { Write-host "Net Logging logging was not enabled" -ForegroundColor DarkCyan }
+    else { Write-host "Netlogon logging was not enabled" -ForegroundColor DarkCyan }
 }
 
 Function DisableDebugEvents ($events) {
@@ -779,7 +819,7 @@ Function DisableDebugEvents ($events) {
             }
         }
     }
-    else { Write-host "Debug Tracing Eventlogs where not enabled" -ForegroundColor DarkCyan }
+    else { Write-host "Debug Tracing Eventlogs were not enabled" -ForegroundColor DarkCyan }
 }
 
 Function ExportEventLogs {
@@ -809,8 +849,7 @@ Param(
 		$evtx = [regex]::Replace($evts,"/","-")
 		$evttarget = $TraceDir +"\"+ $evtx+".evtx"
 		$EventSession = New-Object System.Diagnostics.Eventing.Reader.EventLogSession
-        #"Exporting Eventlog : "+ $evts + " using filter :" + $expfilter
-		$EventSession.ExportLogAndMessages($evts,'Logname',$expfilter,$evttarget)
+        $EventSession.ExportLog($evts,'Logname',$expfilter,$evttarget)
     }
     Pop-Location
 }
@@ -955,6 +994,36 @@ Function DisableLDAPTrace {
     }
 }
 
+Function EnableWAPTrace {
+    if($IsProxy) {
+        if ($TraceEnabled -and $WAPTraceEnabled) {
+            Write-host "Starting WAP Tracing" -ForegroundColor DarkCyan
+            Push-Location $TraceDir
+            ForEach ($log in $WAPTraceOn) {
+	        cmd.exe /c $log |Out-Null
+            }
+
+            Pop-Location
+        }
+    }
+}
+
+Function DisableWAPTrace {
+    if($IsProxy) {
+        if($TraceEnabled -and $WAPTraceEnabled) {
+            Write-Host "Stopping WAP Tracing" -ForegroundColor DarkCyan
+            Push-Location $TraceDir
+
+            ForEach ($log in $WapTraceOff) {
+	    	cmd.exe /c $log |Out-Null
+	    	}
+
+            Pop-Location
+        }
+        else { Write-host "WAP Tracing was not enabled" -ForegroundColor DarkCyan }
+    }
+}
+
 function  Test-KRBEncTypePolicy {
     # Specify the registry key path and the value name
     $keyPath = "SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System\Kerberos\Parameters\"
@@ -995,16 +1064,28 @@ function  Test-KRBEncTypePolicy {
 
 }
 
-
 function Get-ServiceAccountDetails {
     #initialize  object to store the result: gsad is the accronym of the function name ( g = get, sa = service account, d = details )
     $gsad = New-Object -TypeName PSObject
 
     #only execute if we are not on proxy/wap
     if (!$IsProxy) {
-        #get currently config service account
-        $SVCACC = ((get-wmiobject win32_service -Filter "Name='adfssrv'").startname)
-        
+        #get currently config service account if this fails
+        try {
+            $SVCACC = ((get-wmiobject win32_service -Filter "Name='adfssrv'").startname)
+        } catch {
+            $gsad | Add-Member -MemberType NoteProperty -Name "ADFS Service Account" -Value "Error: Failed to retrieve ADFS Service Account from Service Controll Manager. The AD FS Role may not be installed. Skipping Service Account checks."
+            return $gsad
+        }
+
+        if (!$SVCACC) {
+            #this would be unexpected as the service account is mandatory for a service to run unless someone deleted the service account from service config/registry
+            $gsad | Add-Member -MemberType NoteProperty -Name "ADFS Service Account" -Value "Error: No ADFS Service Account configured. This is unexpected and could mean the service account was removed from the service configuration in Windows(Registry)."
+            return $gsad
+        } else {
+            $gsad | Add-Member -MemberType NoteProperty -Name "ADFS Service Account" -Value $SVCACC 
+        }
+
         #detect name format UPN vs Legacy
         if ($SVCACC.contains('@')) {
             $filter ="(userprincipalname="+$SVCACC+")"
@@ -1015,12 +1096,9 @@ function Get-ServiceAccountDetails {
             $filter ="(samaccountname="+$SVCACC.Split('\')[1]+")"
             $domain = $SVCACC.Split('\')[0]
         }
-    
-
+        
     $conn= (New-Object System.DirectoryServices.DirectoryEntry("LDAP://$domain/RootDSE")).dnshostname
     [string]$att = "*"
-
-    $gsad | Add-Member -MemberType NoteProperty -Name "ADFS Service Account" -Value $SVCACC 
 
     #Performing LDAP Lookup of ADFS Service Account
     $re= LDAPQuery -filter $filter -att $att -conn $conn
@@ -1036,10 +1114,17 @@ function Get-ServiceAccountDetails {
             $adl.SetSecurityDescriptorBinaryForm($re.Entries[0].Attributes.'msds-groupmsamembership'[0])
             $gsad | Add-Member -MemberType NoteProperty -Name "GMSA allowed Hosts" -value ($adl.AccessToString)
         }
+        #try reading the SPN configuration from the service account
+        try { 
+           $gsad | Add-Member -MemberType NoteProperty -Name "OnAccountRegisteredSPN" -Value ($re.Entries.Attributes.serviceprincipalname.GetValues('string'))
+        } catch { 
+            #we failed to read the SPN value and must assume there is no SPN configured for this service account
+            if ($_.FullyQualifiedErrorID -eq 'InvokeMethodOnNull' ) {
+                $gsad | Add-Member -MemberType NoteProperty -Name "OnAccountRegisteredSPN" -Value "ERROR: No SPNs are configured for this Service Account."
+            }
+        }
 
-        $gsad | Add-Member -MemberType NoteProperty -Name "OnAccountRegisteredSPN" -Value ($re.Entries.Attributes.serviceprincipalname.GetValues('string'))
-
-        #whilst we are at it get the kerberos encryption type value if there is one configured
+        #whilst we are at it try and get the kerberos encryption type value if there is one configured
         Try { 
             $EncType= [int]::Parse($re.Entries[0].Attributes.'msds-supportedencryptiontypes'.GetValues('string')) 
         } Catch { 
@@ -1080,7 +1165,7 @@ function Get-ServiceAccountDetails {
     }
 
     # if still no hostname last attempt to get the farmname is from DB 
-    # this is best effort here since we may not be able to connect to DB if SQL is used and account has no logon/is no DBA
+    # this is best effort here since we may not be able to connect to DB if SQL is used and account has no logon rights/is not a DBA
     # or if WID but we are not local admin respectively WID may not be started or no DB exists like on initial setup
     if ($null -eq $hostname ) {
         try {
@@ -1088,9 +1173,8 @@ function Get-ServiceAccountDetails {
         } catch {}
     }
 
-    #if we have a hostname lets attempt to perform a check for dupe SPNs
+    #if we have a hostname lets attempt to perform a check for duplicate SPNs
     #first check create the connection object. Use GlobalCatalog as we may have a dupe in a child domain of the forest
-
     if (!($null -eq $hostname )) {
         $gconn= (New-Object System.DirectoryServices.DirectoryEntry("GC://$domain/RootDSE")).dnshostname
         $filter= [string]::format("(serviceprincipalname=*/{0})", $hostname ) 
@@ -1098,7 +1182,6 @@ function Get-ServiceAccountDetails {
     }
     
     #if we dont have a hostname we dont create the ldap connection and filter so we dont need to run the query after all
-    
     if (!($null -eq $gconn)) {
         
         $re= LDAPQuery -filter $filter -att $att -conn $gconn
@@ -1110,7 +1193,9 @@ function Get-ServiceAccountDetails {
                                             ($_.Attributes.'serviceprincipalname'.GetValues('string') -join " ; ") )
                                             }
             $gsad | Add-Member -MemberType NoteProperty -Name "Duplicate SPN" -Value $obj
-        } 
+        } else {
+            $gsad | Add-Member -MemberType NoteProperty -Name "Duplicate SPN" -Value "Warning: Duplicate SPN check failed.`r`nThe query may have timed-out or may have returned no results.`r`nYou can use 'setspn.exe -f -q */$($hostname)' to query for duplicate SPN's in the forest.`r`n."
+        }
 
     }
 
@@ -1382,15 +1467,20 @@ if ([string]::IsNullOrEmpty($Path)) {
     $ConfigOnly = $RunProp.ConfigOnly
     $PerfCounter = $RunProp.PerfCounter
     $LdapTraceEnabled= $RunProp.LdapTraceEnabled
+    $WAPTraceEnabled= $RunProp.WAPTraceEnabled
 }
 elseif (![string]::IsNullOrEmpty($Path)) {
-    if($Tracing.IsPresent -eq $false){ $TraceEnabled=$false;$NetTraceEnabled=$false;$PerfCounter=$false;$LdapTraceEnabled=$false;$ConfigOnly=$true }
+    if($Tracing.IsPresent -eq $false){ $TraceEnabled=$false;$NetTraceEnabled=$false;$PerfCounter=$false;$LdapTraceEnabled=$false;$ConfigOnly=$true;$WAPTraceEnabled=$false }
     else {
         $TraceEnabled=$true;
         $ConfigOnly=$false;
+        $LdapTraceEnabled=$false
+        $WAPTraceEnabled=$false
+        $PerfCounter=$false
         if($NetworkTracing.IsPresent -eq $true){ $NetTraceEnabled=$true } else { $NetTraceEnabled=$false }
-        if($PerfTracing.IsPresent -eq $true) { $PerfCounter=$true } else { $PerfCounter=$false }
-        if($LDAPTracing.IsPresent -eq $true) { if(!$IsProxy) { $LdapTraceEnabled=$true } } else { $LdapTraceEnabled=$false }
+        if($PerfTracing.IsPresent -eq $true) { $PerfCounter=$true } 
+        if(($LDAPTracing.IsPresent -eq $true) -and (!$isproxy)) {  $LdapTraceEnabled=$true }  
+        if(($WAPTracing.IsPresent -eq $true) -and ($isproxy))  { $WAPTraceEnabled=$true } 
     }
 }
 
@@ -1408,7 +1498,7 @@ Write-host "Creating Temporary Folder in $path" -ForegroundColor DarkCyan
 New-Item -ItemType directory -Path $TraceDir -Force | Out-Null
 if($PSVersionTable.PSVersion -le [Version]'4.0') { Start-Transcript -Path "$TraceDir\transscript_output.txt" -Append |out-null} else { Start-Transcript -Path "$TraceDir\transscript_output.txt" -Append -IncludeInvocationHeader |out-null}
 Write-Host "Debug logs will be saved in: " $Path -ForegroundColor DarkCyan
-Write-Host "Options selected:  TracingEnabled:"$TraceEnabled "NetworkTrace:" $NetTraceEnabled " ConfigOnly:" $ConfigOnly " PerfCounter:" $PerfCounter " LDAPTrace:" $LdapTraceEnabled -ForegroundColor DarkCyan
+Write-Host "Options selected:  TracingEnabled:"$TraceEnabled "NetworkTrace:" $NetTraceEnabled " ConfigOnly:" $ConfigOnly " PerfCounter:" $PerfCounter " LDAPTrace:" $LdapTraceEnabled "WAPTrace:" $WAPTraceEnabled -ForegroundColor DarkCyan
 Write-Progress -Activity "Preparation" -Status 'Setup Data Directory' -percentcomplete 5
 
 if ($TraceEnabled) {
@@ -1439,6 +1529,7 @@ LogManStart
 EnableNetworkTrace
 EnablePerfCounter
 EnableLDAPTrace
+EnableWAPTrace
 
 if($TraceEnabled) {
 Write-Progress -Activity "Ready for Repro" -Status 'Waiting for Repro' -percentcomplete 50
@@ -1458,6 +1549,7 @@ Write-Progress -Activity "Collecting" -Status 'Stop additional logs' -percentcom
     DisablePerfCounter
     DisableNetlogonDebug
     DisableLDAPTrace
+    DisableWAPTrace
 
 Write-Progress -Activity "Collecting" -Status 'Getting otherlogs' -percentcomplete 70
 GatherTheRest
