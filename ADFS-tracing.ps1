@@ -1,6 +1,6 @@
 ############################################################################################################
 # ADFS troubleshooting - Data Collection
-# Supported OS versions: Windows Server 2012 to Server 2022
+# Supported OS versions: Windows Server 2012 to Server 2025
 # Supported role: ADFS on 2012 to 2022, ADFS proxy server (2012) and Web Application Proxy (2012 R2 to 2022)
 ############################################################################################################
 
@@ -33,6 +33,7 @@ Add-Type -AssemblyName System.IO.Compression.FileSystem
 #region Parameters
 [Version]$WinVer = [System.Environment]::OSVersion.Version
 $IsProxy = ((Get-WindowsFeature -name ADFS-Proxy).Installed -or (Get-WindowsFeature -name Web-Application-Proxy).Installed)
+
 # Event logs
 $ADFSDebugEvents = "Microsoft-Windows-CAPI2/Operational","AD FS Tracing/Debug","Device Registration Service Tracing/Debug"
 $WAPDebugEvents  = "Microsoft-Windows-CAPI2/Operational","AD FS Tracing/Debug","Microsoft-Windows-WebApplicationProxy/Session"
@@ -72,6 +73,8 @@ $LogmanOff = 'logman stop "schannel" -ets',`
 $ldapetlOn='logman create trace "adfs_ldap" -ow -o .\ldap.etl -p "Microsoft-Windows-ADSI" 0xffffffffffffffff 0xff -nb 16 16 -bs 1024 -mode Circular -f bincirc -max 4096 -ets',`
 'logman update trace "adfs_ldap" -p "Microsoft-Windows-LDAP-Client" 0xffffffffffffffff 0xff -ets'
 
+$ldapetlOff= 'logman stop "adfs_ldap" -ets'
+
 #Web Application Proxy Traces
 $WAPTraceOn = 'logman create trace "WebAppProxy" -ow -o .\wap_trace.etl -p {66C13383-C691-4CF7-B404-7E172E2DC0C2} 0xffffffffffffffff 0xff -nb 16 16 -bs 1024 -mode Circular -f bincirc -max 4096 -ets ',`
 'logman update trace "WebAppProxy" -p {7B879E0C-83A7-4DCA-8492-063A257D4288} 0xffffffffffffffff 0xff -ets',`
@@ -80,31 +83,32 @@ $WAPTraceOn = 'logman create trace "WebAppProxy" -ow -o .\wap_trace.etl -p {66C1
 'logman update trace "WebAppProxy" -p {6519B1CA-2DD1-45D8-A53A-34D03B24EF58} 0xffffffffffffffff 0xff -ets'
 $WapTraceOff = "logman -stop WebAppProxy -ets" 
 
-$ldapetlOff= 'logman stop "adfs_ldap" -ets'
-
 #NetworkCapture+genericInternetTraffic
 $EnableNetworkTracer = 'netsh trace start scenario=internetServer capture=yes report=disabled overwrite=yes maxsize=500 tracefile=.\%COMPUTERNAME%-network.etl'
 $DisableNetworkTracer = 'netsh trace stop'
 
-#Performance Counter
-$CreatePerfCountProxy = 'Logman.exe create counter ADFSProxy -o ".\ADFSProxy-perf.blg" -f bincirc -max 512 -v mmddhhmm -c "\AD FS Proxy\*" "\LogicalDisk(*)\*" "\Memory\*" "\PhysicalDisk(*)\*" "\Process(*)\*" "\Processor(*)\*" "\TCPv4\*" -si 0:00:05'
-$EnablePerfCountProxy = 'Logman.exe start ADFSProxy'
-
-$DisablePerfCountProxy = 'Logman.exe stop ADFSProxy'
-$RemovePerfCountProxy = 'Logman.exe delete ADFSProxy'
-
-$CreatePerfCountADFS = 'Logman.exe create counter ADFSBackEnd -o ".\%COMPUTERNAME%-ADFSBackEnd-perf.blg" -f bincirc -max 512 -v mmddhhmm -c "\AD FS\*" "\LogicalDisk(*)\*" "\Memory\*" "\PhysicalDisk(*)\*" "\Process(*)\*" "\Processor(*)\*" "\Netlogon(*)\*" "\TCPv4\*" "Netlogon(*)\*" -si 00:00:05'
-$EnablePerfCountADFS = 'Logman.exe start ADFSBackEnd'
-
-$DisablePerfCountADFS = 'Logman.exe stop ADFSBackEnd'
-$RemovePerfCountADFS = 'Logman.exe delete ADFSBackEnd'
-
-$others = 'nltest /trusted_domains > %COMPUTERNAME%-nltest-trusted_domains.txt',`
-'ipconfig /flushdns'
+#Performance Counters
+$perfcnt = @{
+    ADFSMain        = @{ CounterName = "\AD FS\*";  Type = "ADFSBackend" }
+    ADFSCrypto      = @{ CounterName = "\AD FS Cryptographic Counters(*)\*";  Type = "ADFSBackend"  }
+    ADFSAttStore    = @{ CounterName = "\AD FS Attribute Store Counters(*)\*"; Type = "ADFSBackend" }
+    ADFSDomCount    = @{ CounterName = "\AD FS Domain Connection Counters\*"; Type = "ADFSBackend" }
+    ADFSExtAuth     = @{ CounterName = "\AD FS External Authentication Provider Counters\*"; Type = "ADFSBackend" }
+    ADFSNode2Node   = @{ CounterName = "\AD FS Inter-node Communication Counters(*)\*"; Type = "ADFSBackend" }
+    ADFSLocalClaims = @{ CounterName = "\AD FS Local Claims Provider Connections(*)\*"; Type = "ADFSBackend" }
+    WIDDBCounter    = @{ CounterName = '\MSSQL$MICROSOFT##WID:Databases(*)\*'; Type = "WID" }
+    ADFSProxy       = @{ CounterName = "\AD FS Proxy\*"; Type="ADFSProxy"}
+    WAPPerf         = @{ CounterName = "\Web Application Proxy\*"; Type="ADFSProxy"}
+    TCPCounter      = @{ CounterName = "\TCPv4\*"; Type="General"}
+    Memory          = @{ CounterName = "\Memory\*"; Type="General"}
+    Processor       = @{ CounterName = "\Processor(*)\*"; Type="General"}
+    Process         = @{ CounterName = "\Process(*)\*"; Type="General"}
+}
 
 #Collection for Additional Files
 $Filescollector = 'copy /y %windir%\debug\netlogon.*  ',`
 'ipconfig /all > %COMPUTERNAME%-ipconfig-all.txt',`
+'nltest /trusted_domains > %COMPUTERNAME%-nltest-trusted_domains.txt',`
 'netsh dnsclient show state > %COMPUTERNAME%-netsh-dnsclient-show-state.txt',`
 'route print > %COMPUTERNAME%-route-print.txt',`
 'netsh advfirewall show global > %COMPUTERNAME%-netsh-int-advf-show-global.txt',`
@@ -775,14 +779,6 @@ Function EnableNetlogonDebug {
     else { Write-Host "Netlogon Logging skipped due to scenario" -ForegroundColor DarkCyan }
 }
 
-Function AllOtherLogs {
-    Push-Location $TraceDir
-	ForEach ($o in $others)	{		
-		cmd.exe /c $o |Out-Null		
-	}
-    Pop-Location
-}
-
 Function LogManStop {
     if($TraceEnabled) {
         Push-Location $TraceDir
@@ -854,6 +850,11 @@ Param(
     Pop-Location
 }
 
+Function Test-IsWID {
+
+    $result = (Get-WmiObject -Namespace root\ADFS -Class SecurityTokenService -ErrorAction SilentlyContinue).ConfigurationDatabaseConnectionString -match "##wid" -or $ConnectionString -match "##ssee"
+    return $result
+}
 function widlogs {
     $widlog="$env:windir\WID\Log"
     $wid = $TraceDir + "\Wid"
@@ -879,10 +880,11 @@ Function GatherTheRest {
     Get-CertificatesByStore ADFSTrustedDevices| out-file  $env:COMPUTERNAME-Certificates-ADFSTrustedDevices.txt
     
     if(!$IsProxy) {
-    Get-Adfssslcertificate|foreach-object {if($_.CtlStoreName -eq "ClientAuthIssuer" ) {Get-CertificatesByStore ClientAuthIssuer| out-file $env:COMPUTERNAME-Certificates-CliAuthIssuer.txt }}
+        Get-Adfssslcertificate|foreach-object {if($_.CtlStoreName -eq "ClientAuthIssuer" ) {Get-CertificatesByStore ClientAuthIssuer| out-file $env:COMPUTERNAME-Certificates-CliAuthIssuer.txt }}
     
-    if((Get-WmiObject -Namespace root\ADFS -Class SecurityTokenService).ConfigurationDatabaseConnectionString -match "##wid" -or $ConnectionString -match "##ssee"){
-        widlogs}
+    if ( Test-IsWID ) {
+        widlogs 
+        }
     }
     else {
         Get-WebApplicationProxySslCertificate|foreach-object { if($_.CtlStoreName -eq "ClientAuthIssuer" ) {Get-ClientAuthIssuerCertificates| out-file $env:COMPUTERNAME-Certificates-CliAuthIssuer.txt} } 
@@ -899,38 +901,104 @@ Function GatherTheRest {
     Pop-Location
 }
 
+Function Test-IsWID {
+
+    $result = (Get-WmiObject -Namespace root\ADFS -Class SecurityTokenService -ErrorAction SilentlyContinue).ConfigurationDatabaseConnectionString -match "##wid" -or $ConnectionString -match "##ssee"
+    return $result
+}
+
+function Enable-ADFSPerfcounters {
+
+Param(
+		[Parameter(Mandatory=$false)]
+        [ValidateSet("ADFSProxy", "ADFSBackend")]
+		[string]$Scenario,
+
+		[Parameter(Mandatory=$false)]
+        [ValidateSet("Create", "Enable", "Disable", "Delete")]
+		[string]$Action
+
+		)
+
+    #sanity checks
+    if (-not $PSBoundParameters.ContainsKey('Scenario')) {
+        "Missing Parameter. You must supply a Scenario. Allowed values: ADFSProxy, ADFSBackend.";
+        break;
+    }
+
+    if (-not $PSBoundParameters.ContainsKey('Action')) {
+        "Missing Parameter. You must supply a Scenario. Allowed values: Create, Enable, Disable, Delete";
+        break;
+    }
+
+    #Action logic
+    switch ($Action) {
+
+        "Create" {  # create the perfcounter collection, we distinguish between WAP and ADFS scenario but always add general counters.
+                    $joined=""
+                    foreach ($Counter in $perfcnt.Keys) {
+                        
+                        # add role based counters    
+                        if ($perfcnt[$Counter].Type -eq $Scenario) {
+                        $format = [string]::Format('"{0}" ',$perfcnt[$Counter].CounterName)
+                        $joined +=$format
+                        }
+                        
+                      #add WID counters if WID is used and we are in ADFSBackend scenario
+                        if ($perfcnt[$Counter].Type -eq 'WID' -and (Test-IsWID) -and ($Scenario -eq 'ADFSBackend')) {
+                        $format = [string]::Format('"{0}" ',$perfcnt[$Counter].CounterName)
+                        $joined +=$format
+                        }
+
+                        ## always add general perf counters
+                        if ($perfcnt[$Counter].Type -eq 'General') {
+                        $format = [string]::Format('"{0}" ',$perfcnt[$Counter].CounterName)
+                        $joined +=$format
+                        }
+                    }
+                    #build the string and return it
+                    $result = [String]::Format('Logman.exe create counter {0} -o ".\%COMPUTERNAME%-{0}-perf.blg" -f bincirc -max 512 -v mmddhhmm -c {1} -si 00:00:05',$Scenario,$joined.TrimEnd())
+                    return $result
+        }
+        "Enable" { #Enable the perfcounter collection setting it to running state
+            return [string]::Format('Logman.exe start {0}',$Scenario)
+        }
+
+        "Disable" { #Disable the perfcounter collection setting it to stopped state
+            return [string]::Format('Logman.exe stop {0}',$Scenario)
+        }
+
+        "Delete" { #Delete the perfcounter collection
+            return [string]::Format('Logman.exe delete {0}',$Scenario)
+        }
+    }
+}
+
 Function EnablePerfCounter {
     if ($TraceEnabled -and $PerfCounter) {
-            if ($IsProxy) {
-            Write-host "Enabling PerfCounter" -ForegroundColor DarkCyan
+                    
+        Write-host "Enabling PerfCounter" -ForegroundColor DarkCyan
+        
+        if ($IsProxy) { $Scenario='ADFSProxy' } else {$Scenario='ADFSBackend' }
+
             Push-Location $TraceDir
-            cmd /c $CreatePerfCountProxy |Out-Null
-		    cmd /c $EnablePerfCountProxy |Out-Null
+            cmd /c $(Enable-ADFSPerfcounters $Scenario Create) |Out-Null
+            cmd /c $(Enable-ADFSPerfcounters $Scenario Enable) |Out-Null
 		    Pop-Location
-            }
-            else {
-            Push-Location $TraceDir
-            Write-host "Configuring PerfCounter" -ForegroundColor DarkCyan
-            cmd /c $CreatePerfCountADFS |Out-Null
-		    cmd /c $EnablePerfCountADFS |Out-Null
-            Pop-Location
-            }
     }
     else { Write-Host "Performance Monitoring will not be sampled due to selected scenario" -ForegroundColor DarkCyan }
 }
 
 Function DisablePerfCounter {
-    if ($TraceEnabled -and $PerfCounter) { Write-Host "Stopping Performance Monitoring" -ForegroundColor DarkCyan
-            if ($IsProxy) {
-		    cmd /c $DisablePerfCountProxy |Out-Null
-            #we need to remove the counter created during enablement
-            cmd /c $RemovePerfCountProxy |Out-Null
-            }
-            else {
-		    cmd /c $DisablePerfCountADFS |Out-Null
-            #we need to remove the counter created during enablement
-            cmd /c $RemovePerfCountADFS |Out-Null
-            }
+    if ($TraceEnabled -and $PerfCounter) { 
+        
+        Write-Host "Stopping Performance Monitoring" -ForegroundColor DarkCyan
+        
+        if ($IsProxy) { $Scenario='ADFSProxy' } else {$Scenario='ADFSBackend' }
+        Push-Location $TraceDir
+        cmd /c $(Enable-ADFSPerfcounters $Scenario Disable) |Out-Null
+        cmd /c $(Enable-ADFSPerfcounters $Scenario Delete) |Out-Null
+        Pop-Location
     }
     else { Write-Host "Performance Monitoring was not sampled due to selected scenario" -ForegroundColor DarkCyan }
 }
@@ -1509,14 +1577,14 @@ Pause $MessageIse $MessageTitle $MessageC
 }
 
 Write-Progress -Activity "Gathering Configuration Data" -Status 'Getting ADFS Configuration' -percentcomplete 7
-GetADFSConfig
-GetDRSConfig
+    GetADFSConfig
+    GetDRSConfig
+    Clear-DnsClientCache
 
-Write-Progress -Activity "Gathering Configuration Data" -Status 'Gathering Logfiles' -percentcomplete 10
-AllOtherLogs
 
 Write-Progress -Activity "Enable Logging" -Status 'Eventlogs' -percentcomplete 15
 $starttime = (get-date)
+
 Write-host "Configuring Event Logging" -ForegroundColor DarkCyan
 if ($IsProxy) 	{ EnableDebugEvents $WAPDebugEvents  }
 else 			{ EnableDebugEvents $ADFSDebugEvents }
