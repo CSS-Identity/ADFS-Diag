@@ -123,7 +123,6 @@ $Filescollector = 'copy /y %windir%\debug\netlogon.*  ',`
 'netsh http show servicestate > %COMPUTERNAME%-netsh-http-show-servicestate.txt',`
 'netsh http show timeout > %COMPUTERNAME%-netsh-http-show-timeout.txt',`
 'netsh http show urlacl > %COMPUTERNAME%-netsh-http-show-urlacl.txt',`
-'wmic qfe list full /format:htable > %COMPUTERNAME%-WindowsPatches.htm',`
 'GPResult /f /h %COMPUTERNAME%-GPReport.html',`
 'systeminfo > %COMPUTERNAME%-sysinfo.txt',`
 'regedit /e %COMPUTERNAME%-reg-NTDS-port-and-other-params.txt HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\NTDS\parameters',`
@@ -700,7 +699,7 @@ function Get-ADFSAzureMfaAdapterconfig {
     else { return "Information:  AzureMFA is not configured in this ADFS Farm." }
 }
 
-function GetProxySettings {
+function Get-ProxySettings {
     $proxycfg = [PSCustomObject]@{}
 
     $IEProxyConfig = New-Object WinhttpCurrentUserIeProxyConfig
@@ -872,7 +871,7 @@ Function GatherTheRest {
     ForEach ($logfile in $Filescollector) {
 		cmd.exe /c $logfile | out-null
     }
-    GetProxySettings | out-file  $env:COMPUTERNAME-ProxySettings.txt
+    Get-ProxySettings | out-file  $env:COMPUTERNAME-ProxySettings.txt
     Get-CertificatesByStore MY| out-file  $env:COMPUTERNAME-Certificates-My.txt
     Get-CertificatesByStore Root| out-file  $env:COMPUTERNAME-Certificates-Root.txt
     Get-CertificatesByStore CA| out-file  $env:COMPUTERNAME-Certificates-CA.txt
@@ -898,13 +897,9 @@ Function GatherTheRest {
     Get-Content $env:windir\system32\drivers\etc\hosts |out-file $env:COMPUTERNAME-hosts.txt
     ((get-childitem $env:Windir\adfs\* -include *.dll,*.exe).VersionInfo |Sort-Object -Property FileVersion |Format-Table FileName, FileVersion) |out-file $env:COMPUTERNAME-ADFS-fileversions.txt
     VerifyNetFX |format-list | out-file $env:COMPUTERNAME-DotNetFramework.txt
+    Get-WindowsUpdateHTMLReport | out-file $env:COMPUTERNAME-WindowsPatches.html
+
     Pop-Location
-}
-
-Function Test-IsWID {
-
-    $result = (Get-WmiObject -Namespace root\ADFS -Class SecurityTokenService -ErrorAction SilentlyContinue).ConfigurationDatabaseConnectionString -match "##wid" -or $ConnectionString -match "##ssee"
-    return $result
 }
 
 function Enable-ADFSPerfcounters {
@@ -1520,6 +1515,113 @@ $nfx | Add-Member -MemberType NoteProperty -Name '.Net-Release' -Value ([String]
   return $nfx
 }
 
+function Get-NetframeworkInstalledUpdates {
+    $updates = New-Object -ComObject "Microsoft.Update.Session"
+    $searcher = $updates.CreateUpdateSearcher()
+    $historyCount = $searcher.GetTotalHistoryCount()
+    $updateHistory = $searcher.QueryHistory(0,$historyCount ) 
+
+    # This will return a list of all updates installed over the existence of this system including Defender, Malicious Software Removal Tool etc..
+    # We only care about Framework Cumulative Updates here (the last 5x) that got successfully installed
+    try {
+        $updatelist =  ($updateHistory | Where-Object { ($_.Title.Contains('Cumulative Update for .NET Framework')) -and $_.ResultCode -eq 2})[0..4] |
+        Select-Object -Property @{Name='Installation time'; Expression={$_.Date}},
+        @{Name='Title (KB)'; Expression={$_.Title}},
+        @{Name='KB Number'; Expression={
+                                    [regex]::replace($_.Title, '.*\(KB(\d+)\).*', 'KB$1')
+                                    } },
+        @{Name='Support Url'; Expression={
+                                    [regex]::replace($_.Title, '.*\(KB(\d+)\).*', 'https://support.microsoft.com/help/$1')
+                                    } }|
+        Sort-Object -Property 'Title (KB)' -Unique |
+        Sort-Object -Property 'Installation time' -Descending
+    } catch {}
+
+    if ($null -eq $updatelist) {
+        $htmlTable = "<p><b>Windows Update history returned no results.</b><br>.NET Framework Updates may not have been installed to date.</p>"
+        
+    } else {
+        $htmlTable = $updatelist | convertto-html -Property 'Installation time','KB Number', 'Title (KB)', 'Support Url' -Fragment
+    }
+    return $htmlTable
+}
+
+function Get-InstalledWindowsUpdates {
+    #we use get-hotfix to get the classic output of installed updates it will not return optional updates though
+    $htmlTable = get-hotfix | 
+    Sort-Object -Descending InstalledOn | 
+    select-object @{Name='Support Url'; Expression={$_.Caption}}, 
+    @{Name='Update type'; Expression={$_.Description}}, 
+    @{Name='KB Number'; Expression={$_.HotFixId}},
+    @{Name='Installation time'; Expression={$_.InstalledOn}},
+    InstalledBy | 
+    convertto-html -Property 'Installation time','Update type','KB Number',InstalledBy,'Support Url' -Fragment
+
+    return $htmlTable
+}
+
+function Get-WindowsUpdateHTMLReport {
+$htmlTemplate = @"
+    <html>
+        <head>
+        <style>
+            body {
+                font-family: "Segoe UI", Arial, sans-serif;
+                font-size: 10pt;
+                background-color: #fafafa;
+                color: #333;
+                margin: 20px;
+            }
+
+            table {
+                border-collapse: separate;
+                border-spacing: 0;
+                width: 100%;
+                background-color: #fff;
+                border-radius: 8px;
+                box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+                overflow: hidden;
+            }
+
+            th {
+                background-color: #4f6ef7;
+                color: #fff;
+                text-align: left;
+                padding: 10px;
+                font-weight: 600;
+                border-right: 1px solid #3e57cc;
+            }
+
+            td {
+                background-color: #f9f9f9;
+                padding: 8px 10px;
+                border: 1px solid #e0e0e0;
+            }
+
+            tr:hover td {
+                background-color: #eef3ff;
+            }
+
+            th:first-child, td:first-child {
+                border-left: none;
+            }
+
+            th:last-child, td:last-child {
+                border-right: none;
+            }    
+</style>
+</head>
+<body>
+<h2>Hotfix Information for: $env:COMPUTERNAME</h2>
+    $(Get-InstalledWindowsUpdates)
+<h2>.Net Framework Cumulative Updates Installed</h2>
+    $(Get-NetframeworkInstalledUpdates)
+</body>
+</html>
+"@
+
+return $htmlTemplate
+}
 #endregion
 ##########################################################################
 #region Execution
