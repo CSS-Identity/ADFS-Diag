@@ -1614,7 +1614,7 @@ $htmlTemplate = @"
 <body>
 <h2>Hotfix Information for: $env:COMPUTERNAME</h2>
     $(Get-InstalledWindowsUpdates)
-<h2>.Net Framework Cumulative Updates Installed</h2>
+<h2>.Net Framework Cumulative Updates - History (last 5)</h2>
     $(Get-NetframeworkInstalledUpdates)
 </body>
 </html>
