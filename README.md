@@ -10,7 +10,7 @@
 
 > このスクリプトはインターネット接続を必要とせず、また Microsoft に自動的にデータを送信することはありません。このスクリプトで収集されたデータは、**アクティブなサポート契約の一環としてのみ** Microsoft に送信ください。Microsoft にデータを送信する際は、**必ず** セキュアなファイル転送を通じて実施ください。  
 > 
-> 転送ツールへのアクセスは、サポート インシデントに割り当てられた Microsoft サポート担当者から提供されます。ツールをご利用の際に懸念事項がある場合は、サポート エンジニアにご相談ください。
+> 転送ツールへのアクセスは、サポート インシデントに割り当てられた Microsoft サポート担当者から提供されます。ツールをご利用の際に懸念事項がある場合は、サポート エンジニアに相談ください。
 >  
 > https://privacy.microsoft.com/en-us/privacy
 
@@ -20,13 +20,13 @@
 
 ---
 
-##### 必要条件:
+#### 必要条件:
 
-- スクリプトは Windows Server 2012R2 / Windows Server 2016 / Windows Server 2019 / Windows Server 2022 and Windows Server 2025 OS 上の ADFS をサポートします。
+- スクリプトは Windows Server 2012R2 / Windows Server 2016 / Windows Server 2019 / Windows Server 2022 および Windows Server 2025 OS 上の ADFS をサポートします。
 - スクリプトを実行するにはローカル管理者権限が必要です。
 - 可能であれば、アカウントはドメイン ユーザーを利用ください。
 - 長時間トレースを実行する場合は、対象フォルダーのあるディスクに最低 5GB の空きディスク容量が必要です。
-- Windows Server 2012 R2 では、Windows Management Framework (WMF) 5.1 (PowerShell 5.0) のインストールが推奨されます (必須ではない) 。WMF はこちらから入手可能です: https://www.microsoft.com/en-us/download/details.aspx?id=54616
+- Windows Server 2012 R2 では、Windows Management Framework (WMF) 5.1 (PowerShell 5.0) のインストールが推奨されます (必須ではない)。WMF はこちらから入手可能です: https://www.microsoft.com/en-us/download/details.aspx?id=54616
 
 Zip ファイルダウンロードするには、緑色の「code」ボタンを押下し、トレース対象のサーバー上の任意の場所に解凍ください。スクリプト ファイルと「helpermodules」フォルダーが指定した場所にあることを確認ください。
 
@@ -34,23 +34,23 @@ Zip ファイルダウンロードするには、緑色の「code」ボタンを
 
 ---
 
-##### トレーススクリプトを対話モードで実行する場合:
+#### トレーススクリプトを対話モードで実行する場合:
 
 パラメーターなしでスクリプトを実行すると、フォーム画面が表示され、以下のオプションが提供されます:
 
 | オプション | 説明 |
 | :--------: | :--------- |
-| Configuration Only | このモードでは静的なデータのみがエクスポートされます。もっとも一般的なシナリオです。|
-| Runtime Tracing | このモードでは Configuration Only のデータに加え、http.sys、schannel、kerberos/ntlm、ADFS、DRS のデバッグ トレースを有効化して取得します。|
-| Include Network Traces | 事象の再現中にトレースを取得する場合にのみ選択可能で、ネットワーク トレースを収集します。|
-| Include Performance Counters | 事象の再現中にトレースを取得する場合にのみ選択可能で、ADFS のパフォーマンス カウンターを収集します。|
-| LDAP Traces | LDAP のデバッグ ログを有効化します。ADFS のセットアップや LDAP 関連の問題のデバッグに使用します。<br>本オプションは Web Application Proxy サーバーでは利用不可です。<br><code style="color : Orange">警告: このオプションを開始するとサービスが再起動する場合があります</code>|
+| Configuration Only | このモードでは静的なデータのみがエクスポートされます。もっとも一般的なシナリオです。 |
+| Runtime Tracing | このモードでは Configuration Only のデータに加え、http.sys、schannel、kerberos/ntlm、ADFS、DRS のデバッグ トレースを有効化して取得します。 |
+| Include Network Traces | 事象の再現中にトレースを取得する場合にのみ選択可能で、ネットワーク トレースを収集します。 |
+| Include Performance Counters | 事象の再現中にトレースを取得する場合にのみ選択可能で、ADFS のパフォーマンス カウンターを収集します。 |
+| LDAP Traces | LDAP のデバッグ ログを有効化します。ADFS のセットアップや LDAP 関連の問題のデバッグに使用します。<br>本オプションは Web Application Proxy サーバーでは利用不可です。<br><code style="color : Orange">警告: このオプションを開始するとサービスが再起動する場合があります</code> |
 | WAP Traces | Web Application Proxy サーバー コアの高度なデバッグ ログを有効化します。Exchange OWA、SharePoint オンプレミスなどの WAP 公開アプリケーションの問題をトラブルシュートするのに利用します。<br>Web Application Proxy サーバーでのみ利用可能なオプションです。 |
 | Textbox/Browse | データ保存先のフォルダーのパスを指定するのに使用します。ファイルの保存先は、ファイル エクスプローラーをご利用いただいても結構です。 |
 
 ---
 
-##### コンソールからスクリプトを実行する場合:
+#### コンソールからスクリプトを実行する場合:
 
 スクリプトは画面から実行した場合と同様に 4 つのパラメーターを受け付けます:
 
@@ -82,7 +82,7 @@ Zip ファイルダウンロードするには、緑色の「code」ボタンを
 
 ---
 
-##### 出力ファイルの参照:
+#### 出力ファイルの参照:
 
 | ファイル名 | 説明 |
 | ----------- | ----------- |
