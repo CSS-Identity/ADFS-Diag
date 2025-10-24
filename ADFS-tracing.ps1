@@ -643,16 +643,16 @@ function Get-ADFSDBStateFromWID {
    $dbconfig = Test-IsWID
    $dbstates = @{}
    
-   #skip if not WID exit.
+   #skip if not WID exit.we shouldnt get this ever since we check before calling this function
    if (!$dbconfig.IsWID) {
     break
    }
 
    #check if service is running and if then attempt the query
-   if ($dbconfig.IsWidStarted -eq [System.ServiceProcess.ServiceControllerStatus]::Running ) {
+    if ($dbconfig.IsWidStarted -eq [System.ServiceProcess.ServiceControllerStatus]::Running ) {
 
-   #query on basic DB states and also retrieve the owner of the DB
-   #states are:  0 = ONLINE, 1 = RESTORING; 2 = RECOVERING 1; ; 3 = RECOVERY_PENDING 1; 4 = SUSPECT ; 5 = EMERGENCY 1; 6 = OFFLINE 1; 7 = COPYING 2; 10 = OFFLINE_SECONDARY 2; 
+   #query on basic DB states and also retrieve the owner of the DB.
+   #general reference on the properties https://learn.microsoft.com/en-us/sql/relational-databases/system-catalog-views/sys-databases-transact-sql?view=sql-server-ver17
     $query=@"
     SELECT
     d.name AS DatabaseName,
@@ -666,51 +666,83 @@ function Get-ADFSDBStateFromWID {
     WHERE d.name LIKE 'ADFS%'
     ORDER BY d.name;
 "@
-    try {
-        $connection = new-object system.data.SqlClient.SqlConnection($dbconfig.ConfigurationDatabaseConnectionString);
-        $connection.Open()
+
+    $errtemplate= @"
+Error: Failed to query from ADFS Configuration database.
+Exception: {0}
+"@
+
+    $dbstatustemplate= @'
+============= {0} - Status ============
+  Database Access      : {1}
+  Database State       : {2}
+  Broker enabled       : {3}
+  Database Owner       : {4}
+
+'@
+
+    $failed = "Test failed"
+    $success= "Test passed"
+    $padding=16
+
+        try {
+            $connection = new-object system.data.SqlClient.SqlConnection($dbconfig.ConfigurationDatabaseConnectionString);
+            $connection.Open()
   
-        $sqlcmd = $connection.CreateCommand();
-        $sqlcmd.CommandText = $query;
-        $result = $sqlcmd.ExecuteReader();
-        $table = new-object "System.Data.DataTable"
-        $table.Load($result)
+            $sqlcmd = $connection.CreateCommand();
+            $sqlcmd.CommandText = $query;
+            $result = $sqlcmd.ExecuteReader();
+            $table = new-object "System.Data.DataTable"
+            $table.Load($result)
     
-        foreach ($row in $table.Rows) {
-            $dbstates[$row.DatabaseName] = @{
-            DatabaseState = $row.DatabaseState
-            RecoveryModel = $row.RecoveryModel
-            IsReadOnly    = $row.IsReadOnly
-            AccessMode    = $row.AccessMode
-            BrokerEnabled = $row.IsBrokerEnabled
-            DBOwner       = $row.DatabaseOwner
+            foreach ($row in $table.Rows) {
+                $dbstates[$row.DatabaseName] = @{
+                DatabaseState = $row.DatabaseState
+                RecoveryModel = $row.RecoveryModel
+                IsReadOnly    = $row.IsReadOnly
+                AccessMode    = $row.AccessMode
+                BrokerEnabled = $row.IsBrokerEnabled
+                DBOwner       = $row.DatabaseOwner
+                }
             }
+        } catch {
+            return [string]::Format($errtemplate, $_.Exception.InnerException)
+        } finally {
+            # Close and dispose the connection if it exists
+            if ($connection.State -eq 'Open') {
+                $connection.Close()
+            }
+            $connection.Dispose()
         }
-
-    } catch {
-        $errMsg = "Failed to connect to or query the ADFS database."
-        $inner = $_.Exception
-
-    # Check what kind of failure it was
-        if ($inner -is [System.Data.SqlClient.SqlException]) {
-            throw [System.Data.SqlClient.SqlException]::new("$errMsg SQL Error: $($inner.Message)")
-        }
-        elseif ($inner -is [System.InvalidOperationException]) {
-            throw [System.Management.Automation.RuntimeException]::new("$errMsg Invalid operation: $($inner.Message)", $inner)
-        }
-        else {
-            throw [System.Exception]::new("$errMsg Unexpected error: $($inner.Message)", $inner)
-        }
-
-    } finally {
-      # Close and dispose the connection if it exists
-        if ($connection.State -eq 'Open') {
-            $connection.Close()
-        }
-        
-        $connection.Dispose()
+    } else {
+        return "Error: WID (Windows Internal Database) service is not running."
     }
-    return $dbstates
+    #loop through the results and format the output
+    foreach ($dbname in $dbstates.keys) {
+    #access mode is expected to be MULTI_USER. if SINGLE_USER or RESTRICTED_USER is found we show it as failed
+        $accmode= switch ($dbstates[$dbname].AccessMode) { 
+                 MULTI_USER      { "$($dbstates[$dbname].AccessMode.PadRight($padding)) - $($success)"} 
+                 SINGLE_USER     { "$($dbstates[$dbname].AccessMode.PadRight($padding)) - $($failed)" } 
+                 RESTRICTED_USER { "$($dbstates[$dbname].AccessMode.PadRight($padding)) - $($failed)" } 
+                 }
+    # we expect the DB to be online. if any other value is found we show it as failed test
+        $dbstate= switch ($dbstates[$dbname].DatabaseState -eq "Online" ) { 
+                 true  {"$($dbstates[$dbname].DatabaseState.PadRight($padding)) - $($success)"} 
+                 false {"$($dbstates[$dbname].DatabaseState.PadRight($padding)) - $($failed)" } 
+                 }
+    #broker is expected to be enabled. Else the service may not reload its config after a change was detected (eg after sync)
+        $broker = switch ([bool]$dbstates[$dbname].BrokerEnabled) { 
+                 true  {"$($dbstates[$dbname].BrokerEnabled.tostring().PadRight($padding)) - $($success)"} 
+                 false {"$($dbstates[$dbname].BrokerEnabled.tostring().PadRight($padding)) - $($failed)"} 
+                 }
+    #format the output
+        [string]::Format($dbstatustemplate,
+                        ($dbname.PadRight(19)),
+                        $accmode,
+                        $dbstate,
+                        $broker,
+                        $dbstates[$dbname].DBOwner
+                        )
     }
 }
 
@@ -718,16 +750,25 @@ function get-servicesettingsfromdb {
       param(
     [Parameter(Mandatory=$true)]
     [string]$DBConnectionString
-  )
-  
+    )
+    # Validate input
     if ([string]::IsNullOrEmpty($DBConnectionString)) {
         $errMsg = "Error: Database connection string is null or empty."
         throw [System.ArgumentException]::new($errMsg)
     }
- 
+    
+    #basic validation of the connection string format
+    try {
+        # Attempt to parse the connection string
+        $dbstring = New-Object System.Data.SqlClient.SqlConnectionStringBuilder $DBConnectionString
+    }
+    catch {
+        $errMsg = "Error: Invalid connection string format"
+        throw [System.ArgumentException]::new($errMsg,$($_.Exception))
+    }
     #Create SQL Connection
     try {
-    $connection = new-object system.data.SqlClient.SqlConnection($DBConnectionString);
+    $connection = new-object system.data.SqlClient.SqlConnection($dbstring.ConnectionString);
     $connection.Open()
 
     $query = "SELECT * FROM IdentityServerPolicy.ServiceSettings"  
@@ -777,7 +818,7 @@ function Get-AzureMFAConfig {
 
 function Get-ADFSAzureMfaAdapterconfig {
 #exception format template
-$excform=@"
+$errmsgformatter=@"
 Error: An error occured whilst attempting to read the MFA Adapter Configuration.
 {0}
 {1}
@@ -787,7 +828,8 @@ Error: An error occured whilst attempting to read the MFA Adapter Configuration.
     Try {
         $MFAraw= Get-AzureMFAConfig       
     } Catch { 
-        $errstr= [string]::Format($excform,
+        #cycle through the exception chain to provide as much info as possible
+        $errstr= [string]::Format($errmsgformatter,
                          $_.Exception.Message,
                          $_.Exception.InnerException.Message,
                          $_.Exception.InnerException.InnerException
@@ -1030,7 +1072,8 @@ Function GatherTheRest {
         Get-Adfssslcertificate|foreach-object {if($_.CtlStoreName -eq "ClientAuthIssuer" ) {Get-CertificatesByStore ClientAuthIssuer| out-file $env:COMPUTERNAME-Certificates-CliAuthIssuer.txt }}
     
     if ( (Test-IsWID).IsWID) {
-        widlogs 
+        widlogs
+        Get-ADFSDBStateFromWID | out-file $env:COMPUTERNAME-ADFS-DatabaseStatus.txt 
         }
     }
     else {
@@ -1380,7 +1423,15 @@ function Get-ServiceAccountDetails {
     # or if WID but we are not local admin respectively WID may not be started or no DB exists like on initial setup
     if ($null -eq $hostname ) {
         try {
-            $hostname = (get-servicesettingsfromdb).ServiceSettingsData.SecurityTokenService.Host.Name
+            $dbconfig = Test-IsWID
+            if ($dbconfig.IsWID -and ($dbconfig.IsWidStarted -ne [System.ServiceProcess.ServiceControllerStatus]::Running )) { 
+                $errMsg = "Error: WID (Windows Internal Database) service is not running."
+                throw [System.Exception]::new($errMsg)
+            }
+            if ($null -ne $dbconfig.ConfigurationDatabaseConnectionString) {
+            $hostname = (get-servicesettingsfromdb -DBConnectionString $dbconfig.ConfigurationDatabaseConnectionString ).ServiceSettingsData.SecurityTokenService.Host.Name
+            }
+
         } catch {}
     }
 
@@ -1762,7 +1813,7 @@ $htmlTemplate = @"
 <body>
 <h2>Hotfix Information for: $env:COMPUTERNAME</h2>
     $(Get-InstalledWindowsUpdates)
-<h2>.Net Framework Cumulative Updates Installed</h2>
+<h2>.Net Framework Cumulative Updates - History (last 5)</h2>
     $(Get-NetframeworkInstalledUpdates)
 </body>
 </html>
