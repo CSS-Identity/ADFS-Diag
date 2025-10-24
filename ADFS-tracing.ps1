@@ -616,10 +616,159 @@ function Get-CertificatesByStore {
     return $mycert
 }
 
-function get-servicesettingsfromdb () {
-    $stsWMIObject = (Get-WmiObject -Namespace root\ADFS -Class SecurityTokenService)
+function Test-IsWID {
+    # Try to get the SecurityTokenService object
+    $sts = Get-WmiObject -Namespace root\ADFS -Class SecurityTokenService -ErrorAction SilentlyContinue
+
+    # Extract the connection string
+    $connectionString = $sts.ConfigurationDatabaseConnectionString
+
+    # Determine if it's using WID or SSEE
+    $result = $connectionString -match "##wid" -or $connectionString -match "##ssee"
+
+    #if Wid do get the service status
+    if ($result) {
+        $svc = new-object System.ServiceProcess.ServiceController('MSSQL$MICROSOFT##WID')
+    }
+    # Return both values as an object
+    return [PSCustomObject]@{
+        IsWID                                 = $result
+        ConfigurationDatabaseConnectionString = $connectionString
+        IsWIDStarted                          = $svc.Status
+    }
+}
+
+function Get-ADFSDBStateFromWID {
+      
+   $dbconfig = Test-IsWID
+   $dbstates = @{}
+   
+   #skip if not WID exit.we shouldnt get this ever since we check before calling this function
+   if (!$dbconfig.IsWID) {
+    break
+   }
+
+   #check if service is running and if then attempt the query
+    if ($dbconfig.IsWidStarted -eq [System.ServiceProcess.ServiceControllerStatus]::Running ) {
+
+   #query on basic DB states and also retrieve the owner of the DB.
+   #general reference on the properties https://learn.microsoft.com/en-us/sql/relational-databases/system-catalog-views/sys-databases-transact-sql?view=sql-server-ver17
+    $query=@"
+    SELECT
+    d.name AS DatabaseName,
+    suser_sname(d.owner_sid) AS DatabaseOwner,
+    d.state_desc AS DatabaseState,
+    d.recovery_model_desc AS RecoveryModel,
+    d.is_read_only AS IsReadOnly,
+    d.is_broker_enabled AS IsBrokerEnabled,
+    d.user_access_desc AS AccessMode
+    FROM sys.databases AS d
+    WHERE d.name LIKE 'ADFS%'
+    ORDER BY d.name;
+"@
+
+    $errtemplate= @"
+Error: Failed to query from ADFS Configuration database.
+Exception: {0}
+"@
+
+    $dbstatustemplate= @'
+============= {0} - Status ============
+  Database Access      : {1}
+  Database State       : {2}
+  Broker enabled       : {3}
+  Database Owner       : {4}
+
+'@
+
+    $failed = "Test failed"
+    $success= "Test passed"
+    $padding=16
+
+        try {
+            $connection = new-object system.data.SqlClient.SqlConnection($dbconfig.ConfigurationDatabaseConnectionString);
+            $connection.Open()
+  
+            $sqlcmd = $connection.CreateCommand();
+            $sqlcmd.CommandText = $query;
+            $result = $sqlcmd.ExecuteReader();
+            $table = new-object "System.Data.DataTable"
+            $table.Load($result)
+    
+            foreach ($row in $table.Rows) {
+                $dbstates[$row.DatabaseName] = @{
+                DatabaseState = $row.DatabaseState
+                RecoveryModel = $row.RecoveryModel
+                IsReadOnly    = $row.IsReadOnly
+                AccessMode    = $row.AccessMode
+                BrokerEnabled = $row.IsBrokerEnabled
+                DBOwner       = $row.DatabaseOwner
+                }
+            }
+        } catch {
+            return [string]::Format($errtemplate, $_.Exception.InnerException)
+        } finally {
+            # Close and dispose the connection if it exists
+            if ($connection.State -eq 'Open') {
+                $connection.Close()
+            }
+            $connection.Dispose()
+        }
+    } else {
+        return "Error: WID (Windows Internal Database) service is not running."
+    }
+    #loop through the results and format the output
+    foreach ($dbname in $dbstates.keys) {
+    #access mode is expected to be MULTI_USER. if SINGLE_USER or RESTRICTED_USER is found we show it as failed
+        $accmode= switch ($dbstates[$dbname].AccessMode) { 
+                 MULTI_USER      { "$($dbstates[$dbname].AccessMode.PadRight($padding)) - $($success)"} 
+                 SINGLE_USER     { "$($dbstates[$dbname].AccessMode.PadRight($padding)) - $($failed)" } 
+                 RESTRICTED_USER { "$($dbstates[$dbname].AccessMode.PadRight($padding)) - $($failed)" } 
+                 }
+    # we expect the DB to be online. if any other value is found we show it as failed test
+        $dbstate= switch ($dbstates[$dbname].DatabaseState -eq "Online" ) { 
+                 true  {"$($dbstates[$dbname].DatabaseState.PadRight($padding)) - $($success)"} 
+                 false {"$($dbstates[$dbname].DatabaseState.PadRight($padding)) - $($failed)" } 
+                 }
+    #broker is expected to be enabled. Else the service may not reload its config after a change was detected (eg after sync)
+        $broker = switch ([bool]$dbstates[$dbname].BrokerEnabled) { 
+                 true  {"$($dbstates[$dbname].BrokerEnabled.tostring().PadRight($padding)) - $($success)"} 
+                 false {"$($dbstates[$dbname].BrokerEnabled.tostring().PadRight($padding)) - $($failed)"} 
+                 }
+    #format the output
+        [string]::Format($dbstatustemplate,
+                        ($dbname.PadRight(19)),
+                        $accmode,
+                        $dbstate,
+                        $broker,
+                        $dbstates[$dbname].DBOwner
+                        )
+    }
+}
+
+function get-servicesettingsfromdb {
+      param(
+    [Parameter(Mandatory=$true)]
+    [string]$DBConnectionString
+    )
+    # Validate input
+    if ([string]::IsNullOrEmpty($DBConnectionString)) {
+        $errMsg = "Error: Database connection string is null or empty."
+        throw [System.ArgumentException]::new($errMsg)
+    }
+    
+    #basic validation of the connection string format
+    try {
+        # Attempt to parse the connection string
+        $dbstring = New-Object System.Data.SqlClient.SqlConnectionStringBuilder $DBConnectionString
+    }
+    catch {
+        $errMsg = "Error: Invalid connection string format"
+        throw [System.ArgumentException]::new($errMsg,$($_.Exception))
+    }
     #Create SQL Connection
-    $connection = new-object system.data.SqlClient.SqlConnection($stsWMIObject.ConfigurationDatabaseConnectionString);
+    try {
+    $connection = new-object system.data.SqlClient.SqlConnection($dbstring.ConnectionString);
     $connection.Open()
 
     $query = "SELECT * FROM IdentityServerPolicy.ServiceSettings"  
@@ -629,22 +778,68 @@ function get-servicesettingsfromdb () {
     $table = new-object "System.Data.DataTable"
     $table.Load($result)
     [XML]$SSD=  $table.ServiceSettingsData
+    } catch {
+        $errMsg = "Error: Failed to connect to or query from ADFS Configuration database"
+        throw [System.Exception]::new($errMsg,$($_.Exception))
+        
+    } finally {
+        if ($connection.State -eq 'Open') {
+            $connection.Close()
+        }
+        
+        $connection.Dispose()
+    }
+
     return $SSD
 }
 
-function AzureMFAConfig () {   
-$ssd = get-servicesettingsfromdb
-if(!$null -eq $ssd) { #loop through the AuthAdapters and find the config for AzureMFAAdapter; we might expand this for other adapters if necessary
+function Get-AzureMFAConfig {
+    $dbconfig = Test-IsWID
+    #skip if WID is not started as it would definitely fail the query 
+    if ($dbconfig.IsWID -and ($dbconfig.IsWidStarted -ne [System.ServiceProcess.ServiceControllerStatus]::Running )) { 
+        $errMsg = "Error: WID (Windows Internal Database) service is not running."
+        throw [System.Exception]::new($errMsg)
+    }
+    
+    try {
+        $ssd = get-servicesettingsfromdb -DBConnectionString $dbconfig.ConfigurationDatabaseConnectionString
+    } catch {
+        $errMsg = "Error: Reading Azure MFA Configuration failed."
+        throw [System.Exception]::new($errMsg,$($_.Exception))
+    }
+    if(!$null -eq $ssd) { #loop through the AuthAdapters and find the config for AzureMFAAdapter; we might expand this for other adapters if necessary
         foreach ($AmD in $ssd.ServiceSettingsData.SecurityTokenService.AuthenticationMethods.AuthenticationMethodDescriptor) { 
             if ($AmD.Identifier -eq "AzureMfaAuthentication" -and (!$AmD.ConfigurationData.IsEmpty)) {
                 return [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($AmD.ConfigurationData))
             }
         }
     }
-}       
+}     
 
 function Get-ADFSAzureMfaAdapterconfig {
-    $MFAraw= AzureMFAConfig       
+#exception format template
+$errmsgformatter=@"
+Error: An error occured whilst attempting to read the MFA Adapter Configuration.
+{0}
+{1}
+{2}
+"@
+    #try to get config and handle the exception if it occurs try to provide as much info as possible and break on error
+    Try {
+        $MFAraw= Get-AzureMFAConfig       
+    } Catch { 
+        #cycle through the exception chain to provide as much info as possible
+        $errstr= [string]::Format($errmsgformatter,
+                         $_.Exception.Message,
+                         $_.Exception.InnerException.Message,
+                         $_.Exception.InnerException.InnerException
+                        )
+        Return $errstr.TrimEnd()
+        break
+    }
+    
+    #try to process the config if it was retrieved
+
     if($null -ne $MFAraw) {
         $obj = [PSCustomObject]@{}
         $obj| Add-Member -MemberType NoteProperty -Name 'AdapterConfig' -Value $MFAraw
@@ -849,11 +1044,6 @@ Param(
     Pop-Location
 }
 
-Function Test-IsWID {
-
-    $result = (Get-WmiObject -Namespace root\ADFS -Class SecurityTokenService -ErrorAction SilentlyContinue).ConfigurationDatabaseConnectionString -match "##wid" -or $ConnectionString -match "##ssee"
-    return $result
-}
 function widlogs {
     $widlog="$env:windir\WID\Log"
     $wid = $TraceDir + "\Wid"
@@ -881,8 +1071,9 @@ Function GatherTheRest {
     if(!$IsProxy) {
         Get-Adfssslcertificate|foreach-object {if($_.CtlStoreName -eq "ClientAuthIssuer" ) {Get-CertificatesByStore ClientAuthIssuer| out-file $env:COMPUTERNAME-Certificates-CliAuthIssuer.txt }}
     
-    if ( Test-IsWID ) {
-        widlogs 
+    if ( (Test-IsWID).IsWID) {
+        widlogs
+        Get-ADFSDBStateFromWID | out-file $env:COMPUTERNAME-ADFS-DatabaseStatus.txt 
         }
     }
     else {
@@ -940,7 +1131,7 @@ Param(
                         }
                         
                       #add WID counters if WID is used and we are in ADFSBackend scenario
-                        if ($perfcnt[$Counter].Type -eq 'WID' -and (Test-IsWID) -and ($Scenario -eq 'ADFSBackend')) {
+                        if ($perfcnt[$Counter].Type -eq 'WID' -and ( (Test-IsWID).IsWID ) -and ($Scenario -eq 'ADFSBackend')) {
                         $format = [string]::Format('"{0}" ',$perfcnt[$Counter].CounterName)
                         $joined +=$format
                         }
@@ -1232,7 +1423,15 @@ function Get-ServiceAccountDetails {
     # or if WID but we are not local admin respectively WID may not be started or no DB exists like on initial setup
     if ($null -eq $hostname ) {
         try {
-            $hostname = (get-servicesettingsfromdb).ServiceSettingsData.SecurityTokenService.Host.Name
+            $dbconfig = Test-IsWID
+            if ($dbconfig.IsWID -and ($dbconfig.IsWidStarted -ne [System.ServiceProcess.ServiceControllerStatus]::Running )) { 
+                $errMsg = "Error: WID (Windows Internal Database) service is not running."
+                throw [System.Exception]::new($errMsg)
+            }
+            if ($null -ne $dbconfig.ConfigurationDatabaseConnectionString) {
+            $hostname = (get-servicesettingsfromdb -DBConnectionString $dbconfig.ConfigurationDatabaseConnectionString ).ServiceSettingsData.SecurityTokenService.Host.Name
+            }
+
         } catch {}
     }
 
@@ -1357,10 +1556,10 @@ Function GetADFSConfig {
 	    Get-AdfsProperties | format-list * | Out-file "Get-AdfsProperties.txt"
 	    Get-AdfsRelyingPartyTrust | format-list * | Out-file "Get-AdfsRelyingPartyTrust.txt"
         }
+
 	    Get-AdfsSyncProperties | format-list * | Out-file "Get-AdfsSyncProperties.txt"
 	    Get-AdfsSslCertificate | format-list * | Out-file "Get-AdfsSslCertificate.txt"
         Get-ServiceAccountDetails | format-list * | Out-file "Get-ServiceAccountDetails.txt"
-
 
 	if ($WinVer -ge [Version]"10.0.14393") 
 	    {# ADFS commands specific to ADFS 2016,2019,2022
