@@ -649,7 +649,7 @@ function Get-ADFSDBStateFromWID {
    }
 
    #check if service is running and if then attempt the query
-    if ($dbconfig.IsWidStarted -eq [System.ServiceProcess.ServiceControllerStatus]::Running ) {
+    if ($dbconfig.IsWIDStarted -eq [System.ServiceProcess.ServiceControllerStatus]::Running ) {
 
    #query on basic DB states and also retrieve the owner of the DB.
    #general reference on the properties https://learn.microsoft.com/en-us/sql/relational-databases/system-catalog-views/sys-databases-transact-sql?view=sql-server-ver17
@@ -796,7 +796,7 @@ function get-servicesettingsfromdb {
 function Get-AzureMFAConfig {
     $dbconfig = Test-IsWID
     #skip if WID is not started as it would definitely fail the query 
-    if ($dbconfig.IsWID -and ($dbconfig.IsWidStarted -ne [System.ServiceProcess.ServiceControllerStatus]::Running )) { 
+    if ($dbconfig.IsWID -and ($dbconfig.IsWIDStarted -ne [System.ServiceProcess.ServiceControllerStatus]::Running )) { 
         $errMsg = "Error: WID (Windows Internal Database) service is not running."
         throw [System.Exception]::new($errMsg)
     }
@@ -819,7 +819,7 @@ function Get-AzureMFAConfig {
 function Get-ADFSAzureMfaAdapterconfig {
 #exception format template
 $errmsgformatter=@"
-Error: An error occured whilst attempting to read the MFA Adapter Configuration.
+Error: An error occurred whilst attempting to read the MFA Adapter Configuration.
 {0}
 {1}
 {2}
@@ -1424,7 +1424,7 @@ function Get-ServiceAccountDetails {
     if ($null -eq $hostname ) {
         try {
             $dbconfig = Test-IsWID
-            if ($dbconfig.IsWID -and ($dbconfig.IsWidStarted -ne [System.ServiceProcess.ServiceControllerStatus]::Running )) { 
+            if ($dbconfig.IsWID -and ($dbconfig.IsWIDStarted -ne [System.ServiceProcess.ServiceControllerStatus]::Running )) { 
                 $errMsg = "Error: WID (Windows Internal Database) service is not running."
                 throw [System.Exception]::new($errMsg)
             }
