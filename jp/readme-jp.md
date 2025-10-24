@@ -80,7 +80,7 @@ Zip ファイルダウンロードするには、緑色の「code」ボタンを
 | Microsoft-Windows-WebApplicationProxy-Admin.evtx | WAP の管理イベント ログ |
 | System.evtx | システム イベント ログ |
 | Hostname-<ADFSBackEnd/ADFSProxy>-perf_<datetime>.blg | トレース期間中のパフォーマンス カウンター情報 |
-| Hostname-ADFS-DatabaseStatus.txt | basic health test on the ADFS database status (WID-Only)  |
+| Hostname-ADFS-DatabaseStatus.txt | AD FS データベースの状態に関する基本的な健全性テスト (WID を利用の場合のみ)  |
 | Hostname-ADFS-fileversions.txt | 現在インストールされている AD FS バイナリ ファイルのバージョン |
 | Hostname-Certificates-CA.txt | コンピューターの中間認証局証明書ストアの一覧 |
 | Hostname-Certificates-My.txt | コンピューターの個人証明書ストアの一覧 |
