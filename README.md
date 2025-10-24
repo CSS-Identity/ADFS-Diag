@@ -94,6 +94,7 @@ When the scripts finished, you can upload the compressed file to the workspace p
 | Microsoft-Windows-WebApplicationProxy-Admin.evtx | WAP Admin Event logs* |
 | System.evtx | System Event logs |
 | Hostname-<ADFSBackEnd/ADFSProxy>-perf_<datetime>.blg | Performance Counter information's for the duration of a trace.  |
+| Hostname-ADFS-DatabaseStatus.txt | basic health test on the ADFS database status (WID-Only)  |
 | Hostname-ADFS-fileversions.txt | readout of the ADFS binary file versions currently installed  |
 | Hostname-Certificates-CA.txt | enumeration of the Intermediate Authentication Certificate Store of the computer  |
 | Hostname-Certificates-My.txt | enumeration of the Personal CertificateStore of the computer  |
