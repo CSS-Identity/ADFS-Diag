@@ -32,11 +32,11 @@ Zip ファイルダウンロードするには、緑色の「code」ボタンを
 
 | オプション | 説明 |
 | :--------: | :--------- |
-| Configuration Only | このモードでは静的なデータのみがエクスポートされます。もっとも一般的なシナリオです。|
-| Runtime Tracing | このモードでは Configuration Only のデータに加え、http.sys、schannel、kerberos/ntlm のデバッグ トレース、および AD FS、DRS のイベント ログを有効化して取得します。|
-| Include Network Traces | ネットワーク トレースを収集します。事象の再現中にトレースを取得する場合にのみ使用します。|
-| Include Performance Counters | AD FS のパフォーマンス カウンターを収集します。事象の再現中にトレースを取得する場合にのみ使用します。|
-| LDAP Traces | LDAP のデバッグ ログを有効化します。AD FS のセットアップや LDAP 関連の問題のデバッグに使用します。<br>本オプションは Web Application Proxy サーバーでは利用不可です。<br><code style="color : Orange">警告: このオプションを開始すると AD FS サービスが再起動する場合があります</code>|
+| Configuration Only | このモードでは静的なデータのみがエクスポートされます。もっとも一般的なシナリオです。 |
+| Runtime Tracing | このモードでは Configuration Only のデータに加え、http.sys、schannel、kerberos/ntlm のデバッグ トレース、および AD FS、DRS のイベント ログを有効化して取得します。 |
+| Include Network Traces | ネットワーク トレースを収集します。Runtime Tracing のオプションとの併用時にのみ使用できます。 |
+| Include Performance Counters | AD FS のパフォーマンス カウンターを収集します。Runtime Tracing のオプションとの併用時にのみ使用できます。 |
+| LDAP Traces | LDAP のデバッグ ログを有効化します。AD FS のセットアップや LDAP 関連の問題のデバッグに使用します。<br>本オプションは Web Application Proxy サーバーでは利用不可です。<br><code style="color : Orange">警告: このオプションを開始すると AD FS サービスが再起動する場合があります</code> |
 | WAP Traces | Web Application Proxy サーバー コアの高度なデバッグ ログを有効化します。Exchange OWA、SharePoint オンプレミスなどの WAP 公開アプリケーションの問題をトラブルシュートするのに利用します。<br>Web Application Proxy サーバーでのみ利用可能なオプションです。 |
 | Textbox/Browse | データ保存先のフォルダーのパスを指定するのに使用します。ファイルの保存先はファイル エクスプローラーをご利用いただいても結構です。 |
 
