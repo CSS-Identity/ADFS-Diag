@@ -224,7 +224,81 @@ Add-Type -TypeDefinition @"
         return result;
         }
     }
+    
+    public class ServiceConfigHelper
+    {
+  
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
+    public struct QUERY_SERVICE_CONFIG
+    {
+        public int dwServiceType;
+        public int dwStartType;
+        public int dwErrorControl;
+        [MarshalAs(UnmanagedType.LPWStr)]
+        public string lpBinaryPathName;
+        public int dwTagId;
+        [MarshalAs(UnmanagedType.LPWStr)]
+        public string lpLoadOrderGroup;
+        public int dwDependencies;
+        [MarshalAs(UnmanagedType.LPWStr)]
+        public string lpServiceStartName; // This is the service account name
+        public IntPtr lpDisplayName;
+    }
 
+    [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Auto)]
+    public static extern IntPtr OpenSCManager(string lpMachineName, string lpDatabaseName, uint dwDesiredAccess);
+
+    [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Auto)]
+    public static extern IntPtr OpenService(IntPtr hSCManager, string lpServiceName, uint dwDesiredAccess);
+
+    [DllImport("advapi32.dll", SetLastError = true)]
+    public static extern bool CloseServiceHandle(IntPtr hSCObject);
+
+    [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Auto)]
+    public static extern bool QueryServiceConfig(IntPtr hService, IntPtr lpServiceConfig, int cbBufSize, out int pcbBytesNeeded);
+
+    const uint SC_MANAGER_ALL_ACCESS = 0xF003F;
+    const uint SERVICE_QUERY_CONFIG = 0x0001;
+
+    // Method to get the service account name
+    public static string GetServiceAccount(string serviceName)
+    {
+        IntPtr scmHandle = OpenSCManager(null, null, SC_MANAGER_ALL_ACCESS);
+        if (scmHandle == IntPtr.Zero)
+        {
+            return "OpenSCManager_failed";
+        }
+
+        IntPtr serviceHandle = OpenService(scmHandle, serviceName, SERVICE_QUERY_CONFIG);
+        if (serviceHandle == IntPtr.Zero)
+        {
+            CloseServiceHandle(scmHandle);
+                return "OpenService_failed";
+        }
+
+        int bytesNeeded = 0;
+        QueryServiceConfig(serviceHandle, IntPtr.Zero, 0, out bytesNeeded); // Find out how much memory is needed
+
+        IntPtr queryConfigBuffer = Marshal.AllocHGlobal(bytesNeeded);
+        bool success = QueryServiceConfig(serviceHandle, queryConfigBuffer, bytesNeeded, out bytesNeeded);
+        if (!success)
+        {
+            Marshal.FreeHGlobal(queryConfigBuffer);
+            CloseServiceHandle(serviceHandle);
+            CloseServiceHandle(scmHandle);
+            return "QueryServiceConfig_failed";
+        }
+
+        QUERY_SERVICE_CONFIG qsc = (QUERY_SERVICE_CONFIG)Marshal.PtrToStructure(queryConfigBuffer, typeof(QUERY_SERVICE_CONFIG));
+        string serviceAccount = qsc.lpServiceStartName;
+
+        Marshal.FreeHGlobal(queryConfigBuffer);
+        CloseServiceHandle(serviceHandle);
+        CloseServiceHandle(scmHandle);
+
+        return serviceAccount;
+    }
+    }
 "@
 #endregion
 ##########################################################################
@@ -616,25 +690,24 @@ function Get-CertificatesByStore {
     return $mycert
 }
 
+
 function Test-IsWID {
-    # Try to get the SecurityTokenService object
+    # Try to get the SecurityTokenService object and its configuration DB connection string
     $sts = Get-WmiObject -Namespace root\ADFS -Class SecurityTokenService -ErrorAction SilentlyContinue
-
-    # Extract the connection string
     $connectionString = $sts.ConfigurationDatabaseConnectionString
-
     # Determine if it's using WID or SSEE
     $result = $connectionString -match "##wid" -or $connectionString -match "##ssee"
-
-    #if Wid do get the service status
+    #if Wid  get the service status and service account name
     if ($result) {
         $svc = new-object System.ServiceProcess.ServiceController('MSSQL$MICROSOFT##WID')
+        $widaccount = [ServiceConfigHelper]::GetServiceAccount($svc.Name)
     }
-    # Return both values as an object
+
     return [PSCustomObject]@{
         IsWID                                 = $result
         ConfigurationDatabaseConnectionString = $connectionString
         IsWIDStarted                          = $svc.Status
+        WIDServiceAccount                     = $widaccount
     }
 }
 
@@ -644,16 +717,43 @@ function Get-ADFSDBStateFromWID {
    $dbstates = @{}
    
    #skip if not WID exit.we shouldnt get this ever since we check before calling this function
-   if (!$dbconfig.IsWID) {
-    break
-   }
+    if (!$dbconfig.IsWID) {
+        break
+    }
+
+    #Verify Service Account for WIDService 
+$svcstatustmpl= @'
+================ WID Service - Status =================
+  Service Status       : {0}
+  WID Service Account  : {1}
+'@
+    $expectedAccount = 'NT SERVICE\MSSQL$MICROSOFT##WID'
+    if (!($dbconfig.WIDServiceAccount.IndexOf('_failed') -eq -1)){
+        $serviceacc=[string]::Format("Error: An error occurred whilst querying the ServiceAccountName for the Windows Internal Database service. Error Code: {0}`r`n", $dbconfig.WIDServiceAccount)
+    } elseif ([string]::Compare($expectedAccount, $dbconfig.WIDServiceAccount, $true) -eq 0  ) {
+        $serviceacc=[string]::Format("{0} - Test passed`r`n", $dbconfig.WIDServiceAccount)
+    } else {
+        $serviceacc=[string]::Format("{0} - Test failed. Expected Account is: {1}`r`n", $dbconfig.WIDServiceAccount, $expectedAccount)
+    }
+    
+    [string]::Format($svcstatustmpl,
+                    $(switch ([int]$dbconfig.IsWIDStarted) {
+                        ([int][System.ServiceProcess.ServiceControllerStatus]::Running)        { "Running - Test passed" }
+                        ([int][System.ServiceProcess.ServiceControllerStatus]::Stopped)        { "Stopped - Test failed" }
+                        ([int][System.ServiceProcess.ServiceControllerStatus]::Paused)         { "Paused - Test failed" }
+                        ([int][System.ServiceProcess.ServiceControllerStatus]::StartPending)   { "Start Pending - Test failed" }
+                        ([int][System.ServiceProcess.ServiceControllerStatus]::StopPending)    { "Stop Pending - Test failed" }
+                        default                                                                { "Unknown Status - Test failed" }
+                    }),
+                    $serviceacc
+                    )
 
    #check if service is running and if then attempt the query
     if ($dbconfig.IsWIDStarted -eq [System.ServiceProcess.ServiceControllerStatus]::Running ) {
 
-   #query on basic DB states and also retrieve the owner of the DB.
-   #general reference on the properties https://learn.microsoft.com/en-us/sql/relational-databases/system-catalog-views/sys-databases-transact-sql?view=sql-server-ver17
-    $query=@"
+    #query basic DB states also retrieve the owner of the DB.
+    #general reference on the properties https://learn.microsoft.com/en-us/sql/relational-databases/system-catalog-views/sys-databases-transact-sql?view=sql-server-ver17
+$query=@"
     SELECT
     d.name AS DatabaseName,
     suser_sname(d.owner_sid) AS DatabaseOwner,
@@ -667,12 +767,7 @@ function Get-ADFSDBStateFromWID {
     ORDER BY d.name;
 "@
 
-    $errtemplate= @"
-Error: Failed to query from ADFS Configuration database.
-Exception: {0}
-"@
-
-    $dbstatustemplate= @'
+$dbstatustemplate= @'
 ============= {0} - Status ============
   Database Access      : {1}
   Database State       : {2}
@@ -714,9 +809,15 @@ Exception: {0}
             }
             $connection.Dispose()
         }
-    } else {
-        return "Error: WID (Windows Internal Database) service is not running."
-    }
+        } else {
+
+$errtemplate= @"
+Error: Failed to query ADFS database informations from WID.
+Details: {0}
+"@
+            return $([string]::Format($errtemplate, 'WID (Windows Internal Database) service is not running.'))
+        }
+    
     #loop through the results and format the output
     foreach ($dbname in $dbstates.keys) {
     #access mode is expected to be MULTI_USER. if SINGLE_USER or RESTRICTED_USER is found we show it as failed
@@ -735,6 +836,7 @@ Exception: {0}
                  true  {"$($dbstates[$dbname].BrokerEnabled.tostring().PadRight($padding)) - $($success)"} 
                  false {"$($dbstates[$dbname].BrokerEnabled.tostring().PadRight($padding)) - $($failed)"} 
                  }
+
     #format the output
         [string]::Format($dbstatustemplate,
                         ($dbname.PadRight(19)),
@@ -768,16 +870,16 @@ function get-servicesettingsfromdb {
     }
     #Create SQL Connection
     try {
-    $connection = new-object system.data.SqlClient.SqlConnection($dbstring.ConnectionString);
-    $connection.Open()
+        $connection = new-object system.data.SqlClient.SqlConnection($dbstring.ConnectionString);
+        $connection.Open()
 
-    $query = "SELECT * FROM IdentityServerPolicy.ServiceSettings"  
-    $sqlcmd = $connection.CreateCommand();
-    $sqlcmd.CommandText = $query;
-    $result = $sqlcmd.ExecuteReader();
-    $table = new-object "System.Data.DataTable"
-    $table.Load($result)
-    [XML]$SSD=  $table.ServiceSettingsData
+        $query = "SELECT * FROM IdentityServerPolicy.ServiceSettings"  
+        $sqlcmd = $connection.CreateCommand();
+        $sqlcmd.CommandText = $query;
+        $result = $sqlcmd.ExecuteReader();
+        $table = new-object "System.Data.DataTable"
+        $table.Load($result)
+        [XML]$SSD=  $table.ServiceSettingsData
     } catch {
         $errMsg = "Error: Failed to connect to or query from ADFS Configuration database"
         throw [System.Exception]::new($errMsg,$($_.Exception))
@@ -786,7 +888,6 @@ function get-servicesettingsfromdb {
         if ($connection.State -eq 'Open') {
             $connection.Close()
         }
-        
         $connection.Dispose()
     }
 
@@ -1318,6 +1419,62 @@ function  Test-KRBEncTypePolicy {
 
 }
 
+Function Test-ADFSComputerNameEqFarmName
+{
+    param(
+    [Parameter(Mandatory=$true)]
+    [string]$farmName
+    )
+
+$errortmpl=@"
+Error: The host computer name '{0}' is identical to the configured ADFS Farmname '{1}'.
+This configuration is unsupported and is known to cause the following issues:
+    - windows integrated authentication will fail since the kerberos SPN cannot be registered on the service account without causing conflicts
+    - failure to perform Remote Management (WinRM)
+    - cause WID synchronization issues
+    - preventing the setup/use of additional farmnodes
+"@
+    try
+    {
+        $netprop = [System.Net.NetworkInformation.IPGlobalProperties]::GetIPGlobalProperties()
+        $computerName = [string]::Format("{0}.{1}",$netprop.HostName,$netprop.Domainname)
+
+        if ($computerName -eq $farmName)
+        {
+            $testResult = [string]::Format($errortmpl,$computerName.ToUpper(),$farmName.ToUpper())
+            return $testResult
+        }
+
+        $testResult = "Test passed"
+        return $testResult
+    }
+    catch [Exception]
+    {
+        return  [string]::format("Error: Failed to verify the computer name and ADFS Farmname are not overlapping. Error {0}", $_.Exception.Message)  
+    }
+}
+
+Function Test-ADFSFarmnameIsNotCNAME {
+    param(
+    [Parameter(Mandatory=$true)]
+    [string]$farmName
+    )  
+    try {
+        $resolutionResult = [System.Net.Dns]::GetHostEntry($farmname)
+        $resolvedHostName = $resolutionResult.HostName
+
+        if ($resolvedHostName -ne $farmname) {
+                $testResult = [String]::format("Warning: The ADFS Farm Name '{0}' is resolved as host '{1}'. This might break windows integrated authentication scenarios.`n",$farmname,$resolvedHostName)
+                return $testResult
+        }
+      
+        $testResult = "Test passed"
+        return $testResult
+    } catch [System.Net.Sockets.SocketException] {
+        return [string]::format("Error: Could not resolve the farm name {0} with exception '{1}'", $_.Exception.Message)
+    }
+}
+
 function Get-ServiceAccountDetails {
     #initialize  object to store the result: gsad is the accronym of the function name ( g = get, sa = service account, d = details )
     $gsad = New-Object -TypeName PSObject
@@ -1326,7 +1483,8 @@ function Get-ServiceAccountDetails {
     if (!$IsProxy) {
         #get currently config service account if this fails
         try {
-            $SVCACC = ((get-wmiobject win32_service -Filter "Name='adfssrv'").startname)
+            $svc = new-object System.ServiceProcess.ServiceController('adfssrv')
+            $SVCACC = [ServiceConfigHelper]::GetServiceAccount($svc.Name)
         } catch {
             $gsad | Add-Member -MemberType NoteProperty -Name "ADFS Service Account" -Value "Error: Failed to retrieve ADFS Service Account from Service Controll Manager. The AD FS Role may not be installed. Skipping Service Account checks."
             return $gsad
@@ -1398,9 +1556,8 @@ function Get-ServiceAccountDetails {
     
     #refined the Dupe SPN check to not only rely on get-ADFSProperties alone for building the SPN query...this may not work in all cases
     #we now go by the order: http hostname binding -> ADFS Properties -> lastly directly from database
-    $hostname = Get-Adfssslcertificate | foreach-object { 
+    $farmname = Get-Adfssslcertificate | foreach-object { 
                 $temphost = @()
-                #we filter out the localhost, classic CBA endpoing on 49443,so should  end up with only one hostname. 
                 if( ($_.PortNumber -eq 443) -and ($_.AppId -eq '5d89a20c-beab-4389-9447-324788eb944a') -and ($_.HostName -inotlike 'localhost') ) { 
                     $temphost += ($_.HostName)
                 }
@@ -1412,16 +1569,15 @@ function Get-ServiceAccountDetails {
     
     #hostname may still be empty so we may have failed to find the bindings.
     #let assume ADFS service is running and we can query adfsproperties from powershell
-    if ($null -eq $hostname ) {
+    if ($null -eq $farmname ) {
         try {  
-            $hostname = (get-adfsproperties).hostname 
+            $farmname = (get-adfsproperties).hostname 
         } catch { }
     }
 
-    # if still no hostname last attempt to get the farmname is from DB 
-    # this is best effort here since we may not be able to connect to DB if SQL is used and account has no logon rights/is not a DBA
-    # or if WID but we are not local admin respectively WID may not be started or no DB exists like on initial setup
-    if ($null -eq $hostname ) {
+    # if still no hostname last attempt to get the farmname from DB 
+    # this is best effort here and limited to WID. The user may not be a DBA or have access to the SQL server 
+    if ($null -eq $farmname ) {
         try {
             $dbconfig = Test-IsWID
             if ($dbconfig.IsWID -and ($dbconfig.IsWIDStarted -ne [System.ServiceProcess.ServiceControllerStatus]::Running )) { 
@@ -1429,21 +1585,20 @@ function Get-ServiceAccountDetails {
                 throw [System.Exception]::new($errMsg)
             }
             if ($null -ne $dbconfig.ConfigurationDatabaseConnectionString) {
-            $hostname = (get-servicesettingsfromdb -DBConnectionString $dbconfig.ConfigurationDatabaseConnectionString ).ServiceSettingsData.SecurityTokenService.Host.Name
+            $farmname = (get-servicesettingsfromdb -DBConnectionString $dbconfig.ConfigurationDatabaseConnectionString ).ServiceSettingsData.SecurityTokenService.Host.Name
             }
-
         } catch {}
     }
 
     #if we have a hostname lets attempt to perform a check for duplicate SPNs
     #first check create the connection object. Use GlobalCatalog as we may have a dupe in a child domain of the forest
-    if (!($null -eq $hostname )) {
+    if (!($null -eq $farmname )) {
         $gconn= (New-Object System.DirectoryServices.DirectoryEntry("GC://$domain/RootDSE")).dnshostname
-        $filter= [string]::format("(serviceprincipalname=*/{0})", $hostname ) 
+        $filter= [string]::format("(serviceprincipalname=*/{0})", $farmname ) 
         [string]$att = "*"
     }
-    
-    #if we dont have a hostname we dont create the ldap connection and filter so we dont need to run the query after all
+
+    #if we dont have a hostname we didnt cannot create the ldap connection and filter so we dont need to run the query after all
     if (!($null -eq $gconn)) {
         
         $re= LDAPQuery -filter $filter -att $att -conn $gconn
@@ -1456,9 +1611,33 @@ function Get-ServiceAccountDetails {
                                             }
             $gsad | Add-Member -MemberType NoteProperty -Name "Duplicate SPN" -Value $obj
         } else {
-            $gsad | Add-Member -MemberType NoteProperty -Name "Duplicate SPN" -Value "Warning: Duplicate SPN check failed.`r`nThe query may have timed-out or may have returned no results.`r`nYou can use 'setspn.exe -f -q */$($hostname)' to query for duplicate SPN's in the forest.`r`n."
+            $gsad | Add-Member -MemberType NoteProperty -Name "Duplicate SPN" -Value "Warning: Duplicate SPN check failed.`r`nThe query may have timed-out or may have returned no results.`r`nYou can use 'setspn.exe -f -q */$($farmname)' to query for duplicate SPN's in the forest.`r`n."
         }
 
+    }
+
+    #test for DNS Cname since it can break kerberos auth
+    if (!($null -eq $farmname )) {
+        $adfscnamecheck = Test-ADFSFarmnameIsNotCNAME -farmName $farmname
+        if ($adfscnamecheck -ne "Test passed") {
+            $gsad | Add-Member -MemberType NoteProperty -Name "DNS-Alias Check" -Value $adfscnamecheck
+        } else {
+            $gsad | Add-Member -MemberType NoteProperty -Name "DNS-Alias Check" -Value ( [String]::Format("Success: The ADFS Farmname '{0}' resolves correctly without CNAME indirection.", $farmname) )
+        }
+    } else {
+        $gsad | Add-Member -MemberType NoteProperty -Name "DNS-Alias Check" -Value "Test skipped. Could not retrieve ADFS farmname from configuration. The service may not be running or is not yet configured"
+    }
+
+    #computername must not be identical to farmname else breaks kerberos auth and farm management
+    if (!($null -eq $farmname )) {
+        $adfseqhostres = Test-ADFSComputerNameEqFarmName -farmName $farmname
+        if ($adfseqhostres -ne "Test passed") {
+            $gsad | Add-Member -MemberType NoteProperty -Name "Farmname-Computername Check" -Value $adfseqhostres
+        } else {
+            $gsad | Add-Member -MemberType NoteProperty -Name "Farmname-Computername Check" -Value "Success: ADFS Farmname and Computername are different."
+        }
+    } else {
+        $gsad | Add-Member -MemberType NoteProperty -Name "Farmname-Computername Check" -Value "Test skipped. Could not retrieve ADFS farmname from configuration. The service may not be running or is not yet configured"
     }
 
     #Finally validate that Kerberos Etype Config is sound and we have a matching config between OS and Service Account
@@ -1469,7 +1648,6 @@ function Get-ServiceAccountDetails {
     $RC4NoPolicysupMsg="The ADFS service account is not configured properly. Local policy/registry for KerberosEncryptionTypes disabled RC4 support,`r`nbut the service account has not been configured for AES support.
     `r`nThis configuration can lead to authentication failures and other erroneous behavior and MUST be corrected.
     `r`nWe recommend configuring the ADFS Service Account for AES Support.`r`nIn Active Directory configure the attribute 'msds-supportedencryptiontypes' for the ADFS ServiceAccount with a value of:`r`n24(decimal) => AES only `n or `n28(decimal) => AES & RC4" 
-
     
     #get KrbConfig from OS Policy
     $HostKrbCfg = Test-KRBEncTypePolicy 
@@ -1523,7 +1701,6 @@ function Get-ServiceAccountDetails {
         $gsad | Add-Member -MemberType NoteProperty -Name "KrbEType expected" -Value "Cannot predict KrbEType usage. A previous query failed"
 
     }
-
    }
 
    Return $gsad
@@ -1848,8 +2025,8 @@ elseif (![string]::IsNullOrEmpty($Path)) {
         $PerfCounter=$false
         if($NetworkTracing.IsPresent -eq $true){ $NetTraceEnabled=$true } else { $NetTraceEnabled=$false }
         if($PerfTracing.IsPresent -eq $true) { $PerfCounter=$true } 
-        if(($LDAPTracing.IsPresent -eq $true) -and (!$isproxy)) {  $LdapTraceEnabled=$true }  
-        if(($WAPTracing.IsPresent -eq $true) -and ($isproxy))  { $WAPTraceEnabled=$true } 
+        if(($LDAPTracing.IsPresent -eq $true) -and (!$IsProxy)) {  $LdapTraceEnabled=$true }  
+        if(($WAPTracing.IsPresent -eq $true) -and ($IsProxy))  { $WAPTraceEnabled=$true } 
     }
 }
 
