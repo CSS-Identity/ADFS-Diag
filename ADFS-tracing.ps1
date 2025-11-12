@@ -24,6 +24,7 @@ param (
     [switch]$PerfTracing
 )
 
+
 ##########################################################################
 #region Assembly Depencies
 Add-Type -AssemblyName System.ServiceProcess
@@ -1419,8 +1420,7 @@ function  Test-KRBEncTypePolicy {
 
 }
 
-Function Test-ADFSComputerNameEqFarmName
-{
+Function Test-ADFSComputerNameEqFarmName {
     param(
     [Parameter(Mandatory=$true)]
     [string]$farmName
@@ -1471,7 +1471,47 @@ Function Test-ADFSFarmnameIsNotCNAME {
         $testResult = "Test passed"
         return $testResult
     } catch [System.Net.Sockets.SocketException] {
-        return [string]::format("Error: Could not resolve the farm name {0} with exception '{1}'", $_.Exception.Message)
+        return [string]::format("Error: Could not resolve the farm name {0} with exception '{1}'",$farmname, $_.Exception.Message)
+    }
+}
+
+function Get-ADFSFarmNameFromSSLBinding {
+    <#
+    .SYNOPSIS
+    Retrieves the ADFS farm name from SSL certificate bindings.
+    
+    .DESCRIPTION
+    This function examines SSL certificate bindings to identify the ADFS farm hostname.
+    It filters out localhost, enterprise registration, and certificate authentication endpoints
+    to find the primary ADFS service hostname.
+    
+    .OUTPUTS
+    String - Returns the first valid ADFS farm hostname found, or $null if none found.
+    #>
+    
+    try {
+        # Get all SSL certificate bindings first
+        $sslCertificates = Get-AdfsSslCertificate
+        
+        # Find the first valid hostname
+        foreach ($cert in $sslCertificates) {
+            if (($cert.PortNumber -eq 443) -and 
+                ($cert.AppId -eq '5d89a20c-beab-4389-9447-324788eb944a') -and 
+                ($cert.HostName -inotlike 'localhost') -and 
+                ($cert.HostName -inotlike 'enterpriseregistration*') -and 
+                ($cert.HostName -inotlike 'certauth*')) {
+                
+                # Return the first valid hostname immediately
+                return $cert.HostName
+            }
+        }
+       
+        # If no valid hostname found, return $null
+        return $null
+    }
+    catch {
+        Write-Warning "Failed to retrieve ADFS SSL certificate bindings: $($_.Exception.Message)"
+        return $null
     }
 }
 
@@ -1556,16 +1596,7 @@ function Get-ServiceAccountDetails {
     
     #refined the Dupe SPN check to not only rely on get-ADFSProperties alone for building the SPN query...this may not work in all cases
     #we now go by the order: http hostname binding -> ADFS Properties -> lastly directly from database
-    $farmname = Get-Adfssslcertificate | foreach-object { 
-                $temphost = @()
-                if( ($_.PortNumber -eq 443) -and ($_.AppId -eq '5d89a20c-beab-4389-9447-324788eb944a') -and ($_.HostName -inotlike 'localhost') ) { 
-                    $temphost += ($_.HostName)
-                }
-        
-                if ($temphost.count -eq 1 ) { 
-                    return $temphost
-                }
-               }
+    $farmname = Get-ADFSFarmNameFromSSLBinding
     
     #hostname may still be empty so we may have failed to find the bindings.
     #let assume ADFS service is running and we can query adfsproperties from powershell
