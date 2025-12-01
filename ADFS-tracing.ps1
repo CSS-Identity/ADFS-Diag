@@ -895,6 +895,50 @@ function get-servicesettingsfromdb {
     return $SSD
 }
 
+Function Test-WiaSupportedUseragents {
+    # Unsupported user agents may cause issues with WIA authentication on various platforms if internal. In particular mobile apps using webview controls or devices that dont support wia per se
+    # usually this is due to using too generic user agents. Update the list as needed. We will extend this list as needed
+    $unsupported=@("Mozilla/5.0","Mozilla/4.0","Chrome","FireFox","Safari","Opera","OPR","EDG/*","Edge/*","Edg/","Edge/","Webkit","=~Windows\s*NT.*Edge")
+    $agents = (get-adfsproperties).WiasupportedUseragents
+    $commonItems=@()
+    
+    if (!($null -eq $agents) -and !($null -eq $unsupported)) {
+        $commonItems = [System.Linq.Enumerable]::Intersect(
+                       [System.Collections.Generic.List[object]]@($unsupported),
+                       [System.Collections.Generic.List[object]]@($agents)
+                       )
+     }
+     
+    if ($commonItems.Count -gt 0) {
+        $commonItemsArray = [System.Linq.Enumerable]::ToArray(
+                            [System.Collections.Generic.IEnumerable[object]]$commonItems
+                            )
+
+        $sb = New-Object System.Text.StringBuilder
+        for ($i = 0; $i -lt $commonItemsArray.Length; $i++) {
+            [void]$sb.Append("   - ")
+            [void]$sb.AppendLine([string]$commonItemsArray[$i])
+        }
+    
+        $msgvalue = [String]::Format(
+"Warning: The following WiaSupportUseragents are known to cause unexpected signon issues with certain devices:`r`n{0}`The agent string listed are either too generic, lacking device platforms identifiers
+or are generally outdated and no longer applicable
+",$sb)
+    
+        $message = New-Object -TypeName PSObject
+        $message | Add-Member -NotePropertyName 'Test-WiaSupportedUseragents' -NotePropertyValue $msgvalue
+     } else {
+        
+        $msgvalue = [String]::Format("Informational: WiasupportedUseragents seems to be configured correctly.
+If a misconfiguration exists it is currently not known by this script.")
+        $message = New-Object -TypeName PSObject
+        $message | Add-Member -NotePropertyName 'Test-WiaSupportedUseragents' -NotePropertyValue $msgvalue
+    }
+    
+    return $message
+}
+
+
 function Get-AzureMFAConfig {
     $dbconfig = Test-IsWID
     #skip if WID is not started as it would definitely fail the query 
@@ -941,7 +985,6 @@ Error: An error occurred whilst attempting to read the MFA Adapter Configuration
     }
     
     #try to process the config if it was retrieved
-
     if($null -ne $MFAraw) {
         $obj = [PSCustomObject]@{}
         $obj| Add-Member -MemberType NoteProperty -Name 'AdapterConfig' -Value $MFAraw
@@ -975,22 +1018,36 @@ Error: An error occurred whilst attempting to read the MFA Adapter Configuration
                 $obj| Add-Member -MemberType NoteProperty -Name 'Warning' -Value 'More than one suitable Certificate was found in store but none of them matches the TenantId in the configuration'
             }
         }
-        $adfsreg= Get-Item -LiteralPath "HKLM:\SOFTWARE\Microsoft\ADFS"
-        $MFAREG = 'StsUrl','SasUrl','ResourceUri'
         
-        if ($adfsreg.Property -notcontains 'SasUrl' -and $adfsreg.Property -notcontains 'StsUrl' -and $adfsreg.Property -notcontains 'ResourceUri') { 
-            $obj| Add-Member -MemberType NoteProperty -Name 'TenantEnvironment ' -value 'Azure MFA has not been configured for Azure Government and will use the default Public environment.'
-        }
-        else { 
-            $obj| Add-Member -MemberType NoteProperty -Name 'TenantEnvironment ' -value 'Registry Entries for Azure Government have been found. Please review the registy'
+        $adfsreg = [Microsoft.Win32.Registry]::LocalMachine.OpenSubKey("SOFTWARE\Microsoft\ADFS")
+        
+        if ($null -ne $adfsreg) {
+            $MFAREG = @('StsUrl','SasUrl','ResourceUri')
+            $foundKeys = @()
             
-            foreach ($_ in $MFAREG) {
-                if($adfsreg.Property -contains $_) { 
-                $obj| Add-Member -MemberType NoteProperty -Name $_ -value $adfsreg.GetValue($_) }
-                else { 
-                $obj| Add-Member -MemberType NoteProperty -Name $_ -value 'Key does not exist' }
-                }
+            foreach ($key in $MFAREG) {
+            if ($null -ne $adfsreg.GetValue($key)) {
+                $foundKeys += $key
             }
+            }
+            
+            if ($foundKeys.Count -eq 0) { 
+                $obj | Add-Member -MemberType NoteProperty -Name 'TenantEnvironment' -Value 'Azure MFA has not been configured for Azure Government and will use the default Public environment.'
+            }
+            else { 
+                $obj | Add-Member -MemberType NoteProperty -Name 'TenantEnvironment' -Value 'Registry Entries for Azure Government have been found. Please review the registry'
+            
+            foreach ($key in $MFAREG) {
+                $value = $adfsreg.GetValue($key)
+                $obj | Add-Member -MemberType NoteProperty -Name $key -Value $(if ($null -ne $value) { $value } else { 'Key/Value not found' })
+            }
+            }
+            #never forget to close the registry handle
+            $adfsreg.Close()
+        }
+        else {
+            $obj | Add-Member -MemberType NoteProperty -Name 'TenantEnvironment' -Value 'Error: ADFS registry key not found'
+        }
     return $obj
     }
     else { return "Information:  AzureMFA is not configured in this ADFS Farm." }
@@ -1413,11 +1470,9 @@ function  Test-KRBEncTypePolicy {
     if ($EncType -gt 31) {
         $EncType = $EncType - 2147483616
     }
-    #watch out if there is someone configuring the regkeys manually instead via GPO then it might be they use wrong or negative values
-    #we add error handling for such cases if we get reports such a misconfig is placed. Maybe we simply add the raw regkey exports
-    # finally convert to enum and return
+    #watch out if there is someone configuring the regkeys manually instead via GPO, it might be they use wrong or negative values
+    # finally convert the value to a meaningful string and return
    return ([KrbEnum]::EnumerateKrb($EncType))
-
 }
 
 Function Test-ADFSComputerNameEqFarmName {
@@ -1492,7 +1547,6 @@ function Get-ADFSFarmNameFromSSLBinding {
     try {
         # Get all SSL certificate bindings first
         $sslCertificates = Get-AdfsSslCertificate
-        
         # Find the first valid hostname
         foreach ($cert in $sslCertificates) {
             if (($cert.PortNumber -eq 443) -and 
@@ -1505,7 +1559,6 @@ function Get-ADFSFarmNameFromSSLBinding {
                 return $cert.HostName
             }
         }
-       
         # If no valid hostname found, return $null
         return $null
     }
@@ -1644,7 +1697,6 @@ function Get-ServiceAccountDetails {
         } else {
             $gsad | Add-Member -MemberType NoteProperty -Name "Duplicate SPN" -Value "Warning: Duplicate SPN check failed.`r`nThe query may have timed-out or may have returned no results.`r`nYou can use 'setspn.exe -f -q */$($farmname)' to query for duplicate SPN's in the forest.`r`n."
         }
-
     }
 
     #test for DNS Cname since it can break kerberos auth
@@ -1756,62 +1808,63 @@ Function GetADFSConfig {
     else {
   	    # Common ADFS commands to all version
         if ((Get-AdfsSyncProperties).Role -eq 'PrimaryComputer') {
-        Get-AdfsAttributeStore | format-list * | Out-file "Get-AdfsAttributeStore.txt"
-	    Get-AdfsCertificate | format-list * | Out-file "Get-AdfsCertificate.txt"
-	    Get-AdfsClaimDescription | format-list * | Out-file "Get-AdfsClaimDescription.txt"
-	    Get-AdfsClaimsProviderTrust | format-list * | Out-file "Get-AdfsClaimsProviderTrust.txt"
-	    Get-AdfsEndpoint | format-list * | Out-file "Get-AdfsEndpoint.txt"
-	    Get-AdfsProperties | format-list * | Out-file "Get-AdfsProperties.txt"
-	    Get-AdfsRelyingPartyTrust | format-list * | Out-file "Get-AdfsRelyingPartyTrust.txt"
+            Get-AdfsAttributeStore | format-list * | Out-file "Get-AdfsAttributeStore.txt"
+	        Get-AdfsCertificate | format-list * | Out-file "Get-AdfsCertificate.txt"
+	        Get-AdfsClaimDescription | format-list * | Out-file "Get-AdfsClaimDescription.txt"
+	        Get-AdfsClaimsProviderTrust | format-list * | Out-file "Get-AdfsClaimsProviderTrust.txt"
+	        Get-AdfsEndpoint | format-list * | Out-file "Get-AdfsEndpoint.txt"
+	        Get-AdfsProperties | format-list * | Out-file "Get-AdfsProperties.txt"
+            Test-WiaSupportedUseragents | format-list * | Out-file "Get-ADFSproperties.txt" -Append
+	        Get-AdfsRelyingPartyTrust | format-list * | Out-file "Get-AdfsRelyingPartyTrust.txt"
         }
 
-	    Get-AdfsSyncProperties | format-list * | Out-file "Get-AdfsSyncProperties.txt"
-	    Get-AdfsSslCertificate | format-list * | Out-file "Get-AdfsSslCertificate.txt"
-        Get-ServiceAccountDetails | format-list * | Out-file "Get-ServiceAccountDetails.txt"
+	        Get-AdfsSyncProperties | format-list * | Out-file "Get-AdfsSyncProperties.txt"
+	        Get-AdfsSslCertificate | format-list * | Out-file "Get-AdfsSslCertificate.txt"
+            Get-ServiceAccountDetails | format-list * | Out-file "Get-ServiceAccountDetails.txt"
 
-	if ($WinVer -ge [Version]"10.0.14393") 
-	    {# ADFS commands specific to ADFS 2016,2019,2022
-        if((Get-AdfsSyncProperties).Role -eq 'PrimaryComputer')
-        {
-        Get-AdfsAccessControlPolicy | format-list * | Out-file "Get-AdfsAccessControlPolicy.txt"
-		Get-AdfsApplicationGroup | format-list * | Out-file "Get-AdfsApplicationGroup.txt"
-		Get-AdfsApplicationPermission | format-list * | Out-file "Get-AdfsApplicationPermission.txt"
-		Get-AdfsCertificateAuthority | format-list * | Out-file "Get-AdfsCertificateAuthority.txt"
-		Get-AdfsClaimsProviderTrustsGroup | format-list * | Out-file "Get-AdfsClaimsProviderTrustsGroup.txt"
-		Get-AdfsFarmInformation | format-list * | Out-file "Get-AdfsFarmInformation.txt"
-		Get-AdfsLocalClaimsProviderTrust | format-list * | Out-file "Get-AdfsLocalClaimsProviderTrust.txt"
-		Get-AdfsNativeClientApplication | format-list * | Out-file "Get-AdfsNativeClientApplication.txt"
-		Get-AdfsRegistrationHosts | format-list * | Out-file "Get-AdfsRegistrationHosts.txt"
-		Get-AdfsRelyingPartyTrustsGroup | format-list * | Out-file "Get-AdfsRelyingPartyTrustsGroup.txt"
-		Get-AdfsScopeDescription | format-list * | Out-file "Get-AdfsScopeDescription.txt"
-		Get-AdfsServerApplication | format-list * | Out-file "Get-AdfsServerApplication.txt"
-		Get-AdfsTrustedFederationPartner | format-list * | Out-file "Get-AdfsTrustedFederationPartner.txt"
-		Get-AdfsWebApiApplication | format-list * | Out-file "Get-AdfsWebApiApplication.txt"
-		Get-AdfsAdditionalAuthenticationRule | format-list * | Out-file "Get-AdfsAdditionalAuthenticationRule.txt"
-		Get-AdfsAuthenticationProvider | format-list * | Out-file "Get-AdfsAuthenticationProvider.txt"
-		Get-AdfsAuthenticationProviderWebContent | format-list * | Out-file "Get-AdfsAuthenticationProviderWebContent.txt"
-		Get-AdfsClient | format-list * | Out-file "Get-AdfsClient.txt"
-		Get-AdfsGlobalAuthenticationPolicy | format-list * | Out-file "Get-AdfsGlobalAuthenticationPolicy.txt"
-		Get-AdfsGlobalWebContent | format-list * | Out-file "Get-AdfsGlobalWebContent.txt"
-		Get-AdfsNonClaimsAwareRelyingPartyTrust | format-list * | Out-file "Get-AdfsNonClaimsAwareRelyingPartyTrust.txt"
-		Get-AdfsRelyingPartyWebContent | format-list * | Out-file "Get-AdfsRelyingPartyWebContent.txt"
-		Get-AdfsWebApplicationProxyRelyingPartyTrust | format-list * | Out-file "Get-AdfsWebApplicationProxyRelyingPartyTrust.txt"
-		Get-AdfsWebConfig | format-list * | Out-file "Get-AdfsWebConfig.txt"
-		Get-AdfsWebTheme | format-list * | Out-file "Get-AdfsWebTheme.txt"
-        Get-AdfsRelyingPartyWebTheme | format-list * | Out-file "Get-AdfsRelyingPartyWebTheme.txt"
+	if ($WinVer -ge [Version]"10.0.14393") {# ADFS commands specific to ADFS 2016,2019,2022
+        if((Get-AdfsSyncProperties).Role -eq 'PrimaryComputer') {
+            Get-AdfsAccessControlPolicy | format-list * | Out-file "Get-AdfsAccessControlPolicy.txt"
+		    Get-AdfsApplicationGroup | format-list * | Out-file "Get-AdfsApplicationGroup.txt"
+		    Get-AdfsApplicationPermission | format-list * | Out-file "Get-AdfsApplicationPermission.txt"
+		    Get-AdfsCertificateAuthority | format-list * | Out-file "Get-AdfsCertificateAuthority.txt"
+		    Get-AdfsClaimsProviderTrustsGroup | format-list * | Out-file "Get-AdfsClaimsProviderTrustsGroup.txt"
+		    Get-AdfsFarmInformation | format-list * | Out-file "Get-AdfsFarmInformation.txt"
+		    Get-AdfsLocalClaimsProviderTrust | format-list * | Out-file "Get-AdfsLocalClaimsProviderTrust.txt"
+		    Get-AdfsNativeClientApplication | format-list * | Out-file "Get-AdfsNativeClientApplication.txt"
+		    Get-AdfsRegistrationHosts | format-list * | Out-file "Get-AdfsRegistrationHosts.txt"
+		    Get-AdfsRelyingPartyTrustsGroup | format-list * | Out-file "Get-AdfsRelyingPartyTrustsGroup.txt"
+		    Get-AdfsScopeDescription | format-list * | Out-file "Get-AdfsScopeDescription.txt"
+		    Get-AdfsServerApplication | format-list * | Out-file "Get-AdfsServerApplication.txt"
+		    Get-AdfsTrustedFederationPartner | format-list * | Out-file "Get-AdfsTrustedFederationPartner.txt"
+		    Get-AdfsWebApiApplication | format-list * | Out-file "Get-AdfsWebApiApplication.txt"
+		    Get-AdfsAdditionalAuthenticationRule | format-list * | Out-file "Get-AdfsAdditionalAuthenticationRule.txt"
+		    Get-AdfsAuthenticationProvider | format-list * | Out-file "Get-AdfsAuthenticationProvider.txt"
+		    Get-AdfsAuthenticationProviderWebContent | format-list * | Out-file "Get-AdfsAuthenticationProviderWebContent.txt"
+		    Get-AdfsClient | format-list * | Out-file "Get-AdfsClient.txt"
+		    Get-AdfsGlobalAuthenticationPolicy | format-list * | Out-file "Get-AdfsGlobalAuthenticationPolicy.txt"
+		    Get-AdfsGlobalWebContent | format-list * | Out-file "Get-AdfsGlobalWebContent.txt"
+		    Get-AdfsNonClaimsAwareRelyingPartyTrust | format-list * | Out-file "Get-AdfsNonClaimsAwareRelyingPartyTrust.txt"
+		    Get-AdfsRelyingPartyWebContent | format-list * | Out-file "Get-AdfsRelyingPartyWebContent.txt"
+		    Get-AdfsWebApplicationProxyRelyingPartyTrust | format-list * | Out-file "Get-AdfsWebApplicationProxyRelyingPartyTrust.txt"
+		    Get-AdfsWebConfig | format-list * | Out-file "Get-AdfsWebConfig.txt"
+		    Get-AdfsWebTheme | format-list * | Out-file "Get-AdfsWebTheme.txt"
+            Get-AdfsRelyingPartyWebTheme | format-list * | Out-file "Get-AdfsRelyingPartyWebTheme.txt"
         }
-        copy-item -path "$env:windir\ADFS\Microsoft.IdentityServer.ServiceHost.Exe.Config" -Destination $TraceDir
-        Get-ADFSAzureMfaAdapterconfig |format-list | Out-file "Get-ADFSAzureMfaAdapterconfig.txt"
+            copy-item -path "$env:windir\ADFS\Microsoft.IdentityServer.ServiceHost.Exe.Config" -Destination $TraceDir
+            Get-ADFSAzureMfaAdapterconfig |format-list | Out-file "Get-ADFSAzureMfaAdapterconfig.txt"
 
-        ##comming soon: WHFB Cert Trust Informations
-        if ($WinVer -ge [Version]"10.0.17763") { #ADFS command specific to ADFS 2019+
+            ##comming soon: WHFB Cert Trust Informations
+        
+            if ($WinVer -ge [Version]"10.0.17763") { #ADFS command specific to ADFS 2019+
             if((Get-AdfsSyncProperties).Role -eq 'PrimaryComputer') {
             Get-AdfsDirectoryProperties | format-list * | Out-file "Get-AdfsDirectoryProperties.txt"
             }
         }
 
-		}
-	    if ($WinVer -eq [Version]"6.3.9600") {# ADFS commands specific to ADFS 2012 R2/consolidate this in next release
+	}
+	
+    if ($WinVer -eq [Version]"6.3.9600") { # ADFS commands specific to ADFS 2012 R2/consolidate this in next release
 	        Get-AdfsAdditionalAuthenticationRule | format-list * | Out-file "Get-AdfsAdditionalAuthenticationRule.txt"
 		    Get-AdfsAuthenticationProvider | format-list * | Out-file "Get-AdfsAuthenticationProvider.txt"
 		    Get-AdfsAuthenticationProviderWebContent | format-list * | Out-file "Get-AdfsAuthenticationProviderWebContent.txt"
@@ -1824,8 +1877,8 @@ Function GetADFSConfig {
 		    Get-AdfsWebConfig | format-list * | Out-file "Get-AdfsWebConfig.txt"
 		    Get-AdfsWebTheme | format-list * | Out-file "Get-AdfsWebTheme.txt"
             copy-item -path "$env:windir\ADFS\Microsoft.IdentityServer.ServiceHost.Exe.Config" -Destination $TraceDir
-	    }
-	    elseif ($WinVer -eq [Version]"6.2.9200") { # No specific cmdlets for this version 
+	}
+	elseif ($WinVer -eq [Version]"6.2.9200") { # No specific cmdlets for this version 
         }
     }
     Pop-Location
@@ -1900,9 +1953,9 @@ function VerifyNetFX {
     $nfx = [PSCustomObject]@{}
     $cSP = [Net.ServicePointManager]::SecurityProtocol
     $SUSC= switch ((get-itemproperty -PATH "HKLM:\SOFTWARE\Microsoft\.NETFramework\v4.0.30319").SchUseStrongCrypto)
-    {   $null {"not configured"} 0 {" explicitly disabled by registry value (0)"} 1 {"explictly enabled by registry"}  }
+    {   $null {"not configured"} 0 {" explicitly disabled by registry value (0)"} 1 {"explicitly enabled by registry"}  }
     $SDTV= switch ((get-itemproperty -PATH "HKLM:\SOFTWARE\Microsoft\.NETFramework\v4.0.30319").SystemDefaultTlsVersions)
-    {   $null {"not configured"} 0 {" explicitly disabled by registry value (0)"} 1 {"explictly enabled by registry"}  }
+    {   $null {"not configured"} 0 {" explicitly disabled by registry value (0)"} 1 {"explicitly enabled by registry"}  }
 
     $fxr = netfxversion
 
@@ -2085,6 +2138,9 @@ $MessageC = "`nData Collection is ready to start.`nPrepare other computers to st
 Pause $MessageIse $MessageTitle $MessageC
 }
 
+Write-Host "Tracing is starting. Current UTC time: $([DateTime]::UtcNow)" -ForegroundColor Cyan
+Write-Host "Timezone: $([System.TimeZoneInfo]::Local.StandardName)" -ForegroundColor DarkCyan
+
 Write-Progress -Activity "Gathering Configuration Data" -Status 'Getting ADFS Configuration' -percentcomplete 7
     GetADFSConfig
     GetDRSConfig
@@ -2131,6 +2187,7 @@ Write-Progress -Activity "Collecting" -Status 'Stop additional logs' -percentcom
 Write-Progress -Activity "Collecting" -Status 'Getting otherlogs' -percentcomplete 70
 GatherTheRest
 
+Write-Host "Tracing has completed. Current UTC time: $([DateTime]::UtcNow)" -ForegroundColor Cyan
 Write-Progress -Activity "Collecting" -Status 'Exporting Eventlogs' -percentcomplete 85
 [int]$endtimeinmsec= (New-TimeSpan -start $starttime -end (get-date).AddMinutes(5)).TotalMilliseconds
 
