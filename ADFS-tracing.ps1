@@ -921,9 +921,8 @@ Function Test-WiaSupportedUseragents {
         }
     
         $msgvalue = [String]::Format(
-"Warning: The following WiaSupportUseragents are known to cause unexpected signon issues with certain devices:`r`n{0}`The agent string listed are either too generic, lacking device platforms identifiers
-or are generally outdated and no longer applicable
-",$sb)
+"Warning: The following WiaSupportUseragents are known to cause unexpected signin issues with certain device platforms:`r`n{0}`The agent string(s) listed are either too generic, lacking device platforms identifiers
+or are generally outdated and no longer applicable",$sb)
     
         $message = New-Object -TypeName PSObject
         $message | Add-Member -NotePropertyName 'Test-WiaSupportedUseragents' -NotePropertyValue $msgvalue
