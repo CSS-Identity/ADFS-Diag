@@ -898,7 +898,7 @@ function get-servicesettingsfromdb {
 Function Test-WiaSupportedUseragents {
     # Unsupported user agents may cause issues with WIA authentication on various platforms if internal. In particular mobile apps using webview controls or devices that dont support wia per se
     # usually this is due to using too generic user agents. Update the list as needed. We will extend this list as needed
-    $unsupported=@("Mozilla/5.0","Mozilla/4.0","Chrome","FireFox","Safari","Opera","OPR","EDG/*","Edge/*","Edg/","Edge/","Webkit","=~Windows\s*NT.*Edge")
+    $unsupported=@("Mozilla/5.0","Mozilla/4.0","Chrome","FireFox","Safari","Opera","OPR","Edg/*","Edge/*","Edg/","Edge/","Webkit/","=~Windows\s*NT.*Edge")
     $agents = (get-adfsproperties).WiasupportedUseragents
     $commonItems=@()
     
