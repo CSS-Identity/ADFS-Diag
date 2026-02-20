@@ -898,7 +898,7 @@ function get-servicesettingsfromdb {
 Function Test-WiaSupportedUseragents {
     # Unsupported user agents may cause issues with WIA authentication on various platforms if internal. In particular mobile apps using webview controls or devices that dont support wia per se
     # usually this is due to using too generic user agents. Update the list as needed. We will extend this list as needed
-    $unsupported=@("Mozilla/5.0","Mozilla/4.0","Chrome","FireFox","Safari","Opera","OPR","Edg/*","Edge/*","Edg/","Edge/","Webkit/","=~Windows\s*NT.*Edge")
+    $unsupported=@("Mozilla/5.0","Mozilla/4.0","Chrome","FireFox","Safari","Opera","Vivaldi","Brave","OPR","Edg/*","Edge/*","Edg/","Edge/","Edge/12","Webkit/","=~Windows\s*NT.*Edge")
     $agents = (get-adfsproperties).WiasupportedUseragents
     $commonItems=@()
     
@@ -925,13 +925,13 @@ Function Test-WiaSupportedUseragents {
 or are generally outdated and no longer applicable",$sb)
     
         $message = New-Object -TypeName PSObject
-        $message | Add-Member -NotePropertyName 'Test-WiaSupportedUseragents' -NotePropertyValue $msgvalue
+        $message | Add-Member -NotePropertyName 'WiaUserAgentTestResult' -NotePropertyValue $msgvalue
      } else {
         
         $msgvalue = [String]::Format("Informational: WiasupportedUseragents seems to be configured correctly.
 If a misconfiguration exists it is currently not known by this script.")
         $message = New-Object -TypeName PSObject
-        $message | Add-Member -NotePropertyName 'Test-WiaSupportedUseragents' -NotePropertyValue $msgvalue
+        $message | Add-Member -NotePropertyName 'WiaUserAgentTestResult' -NotePropertyValue $msgvalue
     }
     
     return $message
@@ -1202,7 +1202,7 @@ Param(
     Pop-Location
 }
 
-function widlogs {
+function Get-Widlogs {
     $widlog="$env:windir\WID\Log"
     $wid = $TraceDir + "\Wid"
     #for the time being we only want to collect the error logs from wid if the cummulative size is less then 25MB was 10 initially
@@ -1230,7 +1230,7 @@ Function GatherTheRest {
         Get-Adfssslcertificate|foreach-object {if($_.CtlStoreName -eq "ClientAuthIssuer" ) {Get-CertificatesByStore ClientAuthIssuer| out-file $env:COMPUTERNAME-Certificates-CliAuthIssuer.txt }}
     
     if ( (Test-IsWID).IsWID) {
-        widlogs
+        Get-Widlogs
         Get-ADFSDBStateFromWID | out-file $env:COMPUTERNAME-ADFS-DatabaseStatus.txt 
         }
     }
@@ -1261,7 +1261,6 @@ Param(
 		[Parameter(Mandatory=$false)]
         [ValidateSet("Create", "Enable", "Disable", "Delete")]
 		[string]$Action
-
 		)
 
     #sanity checks
@@ -1701,13 +1700,13 @@ function Get-ServiceAccountDetails {
     #test for DNS Cname since it can break kerberos auth
     if (!($null -eq $farmname )) {
         $adfscnamecheck = Test-ADFSFarmnameIsNotCNAME -farmName $farmname
-        if ($adfscnamecheck -ne "Test passed") {
-            $gsad | Add-Member -MemberType NoteProperty -Name "DNS-Alias Check" -Value $adfscnamecheck
+        if ($adfscnamecheck -ne "Test passed") { 
+            $gsad | Add-Member -MemberType NoteProperty -Name "DNSAliasTestResult" -Value $adfscnamecheck
         } else {
-            $gsad | Add-Member -MemberType NoteProperty -Name "DNS-Alias Check" -Value ( [String]::Format("Success: The ADFS Farmname '{0}' resolves correctly without CNAME indirection.", $farmname) )
+            $gsad | Add-Member -MemberType NoteProperty -Name "DNSAliasTestResult" -Value ( [String]::Format("Success: The ADFS Farmname '{0}' resolves correctly without CNAME indirection.", $farmname) )
         }
     } else {
-        $gsad | Add-Member -MemberType NoteProperty -Name "DNS-Alias Check" -Value "Test skipped. Could not retrieve ADFS farmname from configuration. The service may not be running or is not yet configured"
+        $gsad | Add-Member -MemberType NoteProperty -Name "DNSAliasTestResult" -Value "Test skipped. Could not retrieve ADFS farmname from configuration. The service may not be running or is not yet configured"
     }
 
     #computername must not be identical to farmname else breaks kerberos auth and farm management
