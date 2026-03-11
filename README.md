@@ -57,6 +57,7 @@ The script accepts four parameters similar to the UI
 | -PerfTracing | set this switch to enable performance counter collection; this only works if -Tracing is provided |
 | -LDAPTracing | set this switch to enable LDAP debug tracing; this only works if -Tracing is provided and when executed on ADFS Servers|
 | -WAPTracing | set this switch to enable LDAP debug tracing; this only works if -Tracing is provided and when executed on WAP Servers|
+| -AcceptEula | By setting this switch you can skip the EULA acceptance in the interactive form. <br> This is particular useful when running the script from console as part of a runbook or similar automation. <br> If this switch is not set, the script will prompt for EULA acceptance even if other parameters are provided. |
 
 During runtime and in particular the trace scenario the script will begin pulling initial static data.
 It will Pause the execution to give you the time to configure the other servers, if tracing on multiple machines is required.

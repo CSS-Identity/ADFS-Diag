@@ -6,6 +6,14 @@
 
 param (
     [Parameter(Mandatory=$false)]
+    [ValidateScript({
+        if ([string]::IsNullOrEmpty($_)) { return $true }
+        $pattern = '^(?:[a-zA-Z]:\\|\\\\[\d\D]|\.{1,2}\\)([^<>:"\\|?*]+\\)*[^<>:"\\|?*]*$'
+        if ($_ -notmatch $pattern) {
+            throw "The path '$_' is not a valid filesystem path. Use a local (C:\folder), UNC (\\server\share), or relative (.\folder) path."
+        }
+        return $true
+    })]
     [string] $Path,
 
     [Parameter(Mandatory=$false)]
@@ -21,18 +29,25 @@ param (
     [switch]$WAPTracing,
 
     [Parameter(Mandatory=$false)]
-    [switch]$PerfTracing
+    [switch]$PerfTracing,
+
+    [Parameter(Mandatory=$false)]
+    [switch]$AcceptEula
 )
 
 
 ##########################################################################
 #region Assembly Depencies
 Add-Type -AssemblyName System.ServiceProcess
-Add-Type -AssemblyName System.Windows.Forms
+#Add-Type -AssemblyName System.Windows.Forms  #deprecated in favor of WPF-based UI components, remove with future release
 Add-Type -AssemblyName System.IO.Compression.FileSystem
+Add-Type -AssemblyName PresentationFramework
+Add-Type -AssemblyName PresentationCore
+Add-Type -AssemblyName WindowsBase
 
 #region Parameters
 [Version]$WinVer = [System.Environment]::OSVersion.Version
+$scriptversion = "v26.02"
 $IsProxy = ((Get-WindowsFeature -name ADFS-Proxy).Installed -or (Get-WindowsFeature -name Web-Application-Proxy).Installed)
 
 # Event logs
@@ -313,245 +328,978 @@ function filepathvalidformat {
     return [regex]::IsMatch($path, $filepathreg)
 }
 
-$DisplayText = @(
-@{ Text = "This ADFS Tracing script is designed to gather detailed information about your ADFS configuration and related Windows settings. `nIt also offers the ability to collect various debug logs at runtime for issues that need to be actively reproduced or that are not easily detectable through other means. 
-The collected data can be provided to a Microsoft support technician for further analysis."}
-@{ Text = "`nWhen performing a Debug/Runtime Trace, you have the option to include Network Traces and/or Performance Counters in the data collection if needed to troubleshoot a specific issue."}
-@{ Text = "`nThe script will prepare to capture data and will notify the Administrator when the data collection process is ready to begin.`nIt will pause and you  can setup the tracing in the same way."}
-@{ Text = "By pressing 'CTRL + Y' the data collecting process on the server. When Tracing multiple servers repeat the procedure and start the tracing on the other nodes as well"}
-@{ Text = "The script will display another message to confirm that it is actively capturing data. `nPress 'CTRL + Y' again to stop the data capture.`n"}
-@{ Text = "`nNote:"; Style="bold"}
-@{ Text = "The Script is not designed to run for extended periods."}
-@{ Text = "In most cases, the script will require between 4GB to 10GB of diskspace, depending on the workload and the duration of the trace and size of the eventlogs."}
-@{ Text = "The script will capture multiple traces in circular buffers and will use a temporary folder at the specified path (e.g., C:\tracing\temporary)."}
-@{ Text = "It's advisable to capture data during periods of low activity in your ADFS environment to minimize impact."}
-@{ Text = "The temporary folder will be later compressed into a .zip file and stored at the selected path."}
+#region Folder Browser Dialog
+function Show-FolderBrowserDialog {
+    <#
+    .SYNOPSIS
+        WPF TreeView-based folder browser using System.IO.
+        Works on Server Core where FolderBrowserDialog fails.
+    #>
+    param([string]$InitialPath)
+
+    $fbXaml = @"
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Select Folder" Width="440" Height="400"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False"
+        ResizeMode="CanResizeWithGrip" Background="#F3F3F3"
+        FontFamily="Segoe UI" FontSize="13">
+    <Window.Resources>
+        <!-- Folder icon geometry -->
+        <StreamGeometry x:Key="FolderIcon">M2,4 L2,18 L22,18 L22,7 L12,7 L10,4 Z</StreamGeometry>
+
+        <!-- Primary button style (OK) — matches Run Dialog -->
+        <Style x:Key="FBPrimaryButton" TargetType="Button">
+            <Setter Property="Background" Value="#0078D4"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Padding" Value="24,5"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="border" Background="{TemplateBinding Background}"
+                                CornerRadius="4" Padding="{TemplateBinding Padding}"
+                                BorderThickness="0">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="#106EBE"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="#005A9E"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="border" Property="Background" Value="#CCE4F7"/>
+                                <Setter Property="Foreground" Value="#99BFDF"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- TreeViewItem style with folder icon -->
+        <Style TargetType="TreeViewItem">
+            <Style.Resources>
+                <!-- Override system selection colours so highlighted items stay readable -->
+                <SolidColorBrush x:Key="{x:Static SystemColors.HighlightBrushKey}" Color="#CCE4F7"/>
+                <SolidColorBrush x:Key="{x:Static SystemColors.HighlightTextBrushKey}" Color="#1A1A1A"/>
+                <SolidColorBrush x:Key="{x:Static SystemColors.InactiveSelectionHighlightBrushKey}" Color="#E5E5E5"/>
+                <SolidColorBrush x:Key="{x:Static SystemColors.InactiveSelectionHighlightTextBrushKey}" Color="#1A1A1A"/>
+            </Style.Resources>
+            <Setter Property="Padding" Value="2,1"/>
+            <Setter Property="Margin" Value="0,1"/>
+            <Setter Property="HeaderTemplate">
+                <Setter.Value>
+                    <DataTemplate>
+                        <StackPanel Orientation="Horizontal">
+                            <Path Data="{StaticResource FolderIcon}" Fill="#FFD75E" Stroke="#C4A63A"
+                                  StrokeThickness="0.8" Width="18" Height="14" Stretch="Uniform"
+                                  Margin="0,0,6,0" VerticalAlignment="Center"/>
+                            <TextBlock Text="{Binding}" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </DataTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+    <Grid Margin="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        <TextBlock Grid.Row="0" Text="Select a destination folder:" FontWeight="SemiBold"
+                   Foreground="#1A1A1A" Margin="0,0,0,8"/>
+        <Border Grid.Row="1" Background="White" CornerRadius="4"
+                BorderBrush="#E1E1E1" BorderThickness="1" Margin="0,0,0,8">
+            <TreeView x:Name="FolderTree" Background="Transparent"
+                      BorderThickness="0" Padding="4"/>
+        </Border>
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button x:Name="OkBtn" Content="OK" Width="90" Height="30" Margin="0,0,8,0"
+                    IsEnabled="False" Style="{StaticResource FBPrimaryButton}"/>
+            <Button x:Name="CancelBtn" Content="Cancel" Width="90" Height="30" FontSize="13"
+                    Background="White" BorderBrush="#E1E1E1"/>
+        </StackPanel>
+    </Grid>
+</Window>
+"@
+
+    $reader = [System.Xml.XmlReader]::Create([System.IO.StringReader]::new($fbXaml))
+    $fbWindow = [System.Windows.Markup.XamlReader]::Load($reader)
+    $reader.Close()
+
+    $tree       = $fbWindow.FindName("FolderTree")
+    $okBtn      = $fbWindow.FindName("OkBtn")
+    $cancelBtn  = $fbWindow.FindName("CancelBtn")
+
+    $script:fbResult = $null
+
+    # --- Helper: create a TreeViewItem with a hidden dummy child for the expand arrow ---
+    function New-FolderNode([string]$folderPath, [string]$displayName) {
+        $node = New-Object System.Windows.Controls.TreeViewItem
+        $node.Header = $displayName
+        $node.Tag    = $folderPath
+        # Invisible placeholder so the expander arrow appears
+        $dummy = New-Object System.Windows.Controls.TreeViewItem
+        $dummy.Visibility = [System.Windows.Visibility]::Collapsed
+        [void]$node.Items.Add($dummy)
+        return $node
+    }
+
+    # --- Populate drive roots ---
+    foreach ($drv in [System.IO.DriveInfo]::GetDrives()) {
+        if ($drv.IsReady) {
+            $label = if ($drv.VolumeLabel) {
+                "$($drv.Name.TrimEnd('\\'))  [$($drv.VolumeLabel)]"
+            } else { $drv.Name.TrimEnd('\\') }
+            [void]$tree.Items.Add((New-FolderNode $drv.Name $label))
+        }
+    }
+
+    # --- Lazy-load subfolders on expand ---
+    $tree.AddHandler(
+        [System.Windows.Controls.TreeViewItem]::ExpandedEvent,
+        [System.Windows.RoutedEventHandler]{
+            param($sender, $e)
+            $item = $e.OriginalSource
+            if ($item -isnot [System.Windows.Controls.TreeViewItem]) { return }
+            # Check if first child is the collapsed dummy placeholder
+            if ($item.Items.Count -eq 1 -and
+                $item.Items[0] -is [System.Windows.Controls.TreeViewItem] -and
+                $item.Items[0].Visibility -eq [System.Windows.Visibility]::Collapsed) {
+
+                $item.Items.Clear()
+                try {
+                    foreach ($dir in [System.IO.Directory]::GetDirectories($item.Tag)) {
+                        $attr = [System.IO.File]::GetAttributes($dir)
+                        if ($attr -band [System.IO.FileAttributes]::Hidden)   { continue }
+                        if ($attr -band [System.IO.FileAttributes]::System)   { continue }
+                        $name = [System.IO.Path]::GetFileName($dir)
+                        [void]$item.Items.Add((New-FolderNode $dir $name))
+                    }
+                } catch {
+                    # Access denied or other I/O error — leave node empty
+                }
+            }
+        }
+    )
+
+    $tree.Add_SelectedItemChanged({
+        param($sender, $e)
+        $sel = $e.NewValue
+        if ($sel -is [System.Windows.Controls.TreeViewItem] -and $sel.Tag) {
+            $script:fbSelectedPath = $sel.Tag
+            $okBtn.IsEnabled       = $true
+        }
+    })
+
+    $okBtn.Add_Click({
+        $script:fbResult = $script:fbSelectedPath
+        $fbWindow.DialogResult = $true
+    })
+    $cancelBtn.Add_Click({
+        $fbWindow.DialogResult = $false
+    })
+
+    if ($InitialPath -and (Test-Path $InitialPath -PathType Container)) {
+        $script:fbSelectedPath = $InitialPath
+        $okBtn.IsEnabled       = $true
+    }
+
+    $fbWindow.Owner = $Window
+    $result = $fbWindow.ShowDialog()
+    if ($result) { return $script:fbResult } else { return $null }
+}
+#endregion
+
+#region Hyperlink Helper
+function New-ClickableHyperlink {
+    param(
+        [Parameter(Mandatory)][string]$Url,
+        [string]$DisplayText
+    )
+    if ([string]::IsNullOrEmpty($DisplayText)) { $DisplayText = $Url }
+    $run = New-Object System.Windows.Documents.Run($DisplayText)
+    $hyperlink = New-Object System.Windows.Documents.Hyperlink($run)
+    $hyperlink.NavigateUri = [Uri]$Url
+    $hyperlink.Foreground  = [System.Windows.Media.Brushes]::Blue
+    $hyperlink.Add_RequestNavigate({
+        param($s, $e)
+        Start-Process $e.Uri.AbsoluteUri
+        $e.Handled = $true
+    })
+    return $hyperlink
+}
+
+function Add-TextBlockInlines {
+    <#
+    .SYNOPSIS
+        Adds Run/Hyperlink inlines to a TextBlock, supporting:
+        - URLs              → clickable Hyperlinks
+        - ***text***        → Bold + Italic
+        - **text**          → Bold
+        - *text*            → Italic
+        The -Bold switch sets the baseline weight for the entire part.
+    #>
+    param(
+        [Parameter(Mandatory)][System.Windows.Controls.TextBlock]$TextBlock,
+        [Parameter(Mandatory)][string]$Text,
+        [switch]$Bold
+    )
+
+    # Helper: emit Runs for a text fragment, applying *-based formatting + optional underline
+    $emitRuns = {
+        param([string]$fragment, [bool]$isBold, [bool]$isUnderline)
+        # Split on  ***bold+italic***  **bold**  *italic*
+        $parts = [regex]::Split($fragment, '(\*{1,3})(.+?)\1')
+        $idx = 0
+        while ($idx -lt $parts.Count) {
+            if ($idx + 2 -lt $parts.Count -and $parts[$idx + 1] -match '^\*{1,3}$') {
+                # plain text before the marker
+                if ($parts[$idx].Length -gt 0) {
+                    $run = New-Object System.Windows.Documents.Run($parts[$idx])
+                    if ($isBold) { $run.FontWeight = [System.Windows.FontWeights]::Bold }
+                    if ($isUnderline) { $run.TextDecorations = [System.Windows.TextDecorations]::Underline }
+                    [void]$TextBlock.Inlines.Add($run)
+                }
+                # formatted content
+                $marker  = $parts[$idx + 1]
+                $content = $parts[$idx + 2]
+                $run = New-Object System.Windows.Documents.Run($content)
+                if ($isUnderline) { $run.TextDecorations = [System.Windows.TextDecorations]::Underline }
+                switch ($marker.Length) {
+                    3 { $run.FontWeight = [System.Windows.FontWeights]::Bold
+                        $run.FontStyle  = [System.Windows.FontStyles]::Italic }
+                    2 { $run.FontWeight = [System.Windows.FontWeights]::Bold }
+                    1 { $run.FontStyle  = [System.Windows.FontStyles]::Italic
+                        if ($isBold) { $run.FontWeight = [System.Windows.FontWeights]::Bold } }
+                }
+                [void]$TextBlock.Inlines.Add($run)
+                $idx += 3
+            }
+            else {
+                if ($parts[$idx].Length -gt 0) {
+                    $run = New-Object System.Windows.Documents.Run($parts[$idx])
+                    if ($isBold) { $run.FontWeight = [System.Windows.FontWeights]::Bold }
+                    if ($isUnderline) { $run.TextDecorations = [System.Windows.TextDecorations]::Underline }
+                    [void]$TextBlock.Inlines.Add($run)
+                }
+                $idx++
+            }
+        }
+    }
+
+    # Step 1: split on URLs
+    $urlSegments = [regex]::Split($Text, '(https?://[^\s]+)')
+    foreach ($seg in $urlSegments) {
+        if ($seg -match '^https?://') {
+            [void]$TextBlock.Inlines.Add((New-ClickableHyperlink -Url $seg))
+        }
+        elseif ($seg.Length -gt 0) {
+            # Step 2: split on _underline_ (outer layer — content may contain * markup)
+            $uParts = [regex]::Split($seg, '(?<!\w)_(.+?)_(?!\w)')
+            # produces: [plain, underlinedContent, plain, underlinedContent, ...]
+            for ($u = 0; $u -lt $uParts.Count; $u++) {
+                if ($uParts[$u].Length -eq 0) { continue }
+                $isUnderline = ($u % 2 -eq 1)
+                & $emitRuns $uParts[$u] $Bold.IsPresent $isUnderline
+            }
+        }
+    }
+}
+
+function Build-TextBlockPanel {
+
+    param(
+        [Parameter(Mandatory)][System.Windows.Controls.StackPanel]$Panel,
+        [Parameter(Mandatory)][array]$Parts
+    )
+    $Panel.Children.Clear()
+
+    # --- Detect header block (leading Bold parts) ---
+    $headerCount = 0
+    foreach ($p in $Parts) { if ($p.Bold) { $headerCount++ } else { break } }
+
+    if ($headerCount -ge 2) {
+        # Title + subtitle in one TextBlock
+        $headerBlock = New-Object System.Windows.Controls.TextBlock
+        $headerBlock.TextWrapping = [System.Windows.TextWrapping]::Wrap
+        $titleRun = New-Object System.Windows.Documents.Run($Parts[0].Text)
+        $titleRun.FontWeight = [System.Windows.FontWeights]::Bold
+        $titleRun.FontSize = 15
+        [void]$headerBlock.Inlines.Add($titleRun)
+        for ($h = 1; $h -lt $headerCount; $h++) {
+            [void]$headerBlock.Inlines.Add((New-Object System.Windows.Documents.LineBreak))
+            $subRun = New-Object System.Windows.Documents.Run($Parts[$h].Text)
+            $subRun.FontWeight = [System.Windows.FontWeights]::Bold
+            [void]$headerBlock.Inlines.Add($subRun)
+        }
+        [void]$Panel.Children.Add($headerBlock)
+
+        # Separator line
+        $sep = New-Object System.Windows.Controls.Border
+        $sep.Height = 1
+        $sep.Background = New-Object System.Windows.Media.SolidColorBrush(
+            [System.Windows.Media.Color]::FromRgb(0xE1, 0xE1, 0xE1))
+        $sep.Margin = [System.Windows.Thickness]::new(0, 10, 0, 6)
+        [void]$Panel.Children.Add($sep)
+
+        $startIndex = $headerCount
+    }
+    else {
+        $startIndex = 0
+    }
+
+    # --- Body parts ---
+    for ($i = $startIndex; $i -lt $Parts.Count; $i++) {
+        $part = $Parts[$i]
+        $numMatch = [regex]::Match($part.Text, '^(\d+\.)\s+')
+
+        if ($part.Indent -and $numMatch.Success) {
+            # Numbered item with hanging indent
+            $grid = New-Object System.Windows.Controls.Grid
+            $col0 = New-Object System.Windows.Controls.ColumnDefinition
+            $col0.Width          = [System.Windows.GridLength]::Auto
+            $col0.SharedSizeGroup = "BulletNum"
+            $col1 = New-Object System.Windows.Controls.ColumnDefinition
+            $col1.Width = [System.Windows.GridLength]::new(1, [System.Windows.GridUnitType]::Star)
+            [void]$grid.ColumnDefinitions.Add($col0)
+            [void]$grid.ColumnDefinitions.Add($col1)
+            $grid.Margin = [System.Windows.Thickness]::new(0, 8, 0, 0)
+
+            $numBlock = New-Object System.Windows.Controls.TextBlock
+            $numBlock.Text   = $numMatch.Groups[1].Value
+            $numBlock.Margin = [System.Windows.Thickness]::new(0, 0, 8, 0)
+            [System.Windows.Controls.Grid]::SetColumn($numBlock, 0)
+            [void]$grid.Children.Add($numBlock)
+
+            $textBlock = New-Object System.Windows.Controls.TextBlock
+            $textBlock.TextWrapping = [System.Windows.TextWrapping]::Wrap
+            Add-TextBlockInlines -TextBlock $textBlock -Text $part.Text.Substring($numMatch.Length) -Bold:$part.Bold
+            [System.Windows.Controls.Grid]::SetColumn($textBlock, 1)
+            [void]$grid.Children.Add($textBlock)
+
+            [void]$Panel.Children.Add($grid)
+        }
+        elseif ($part.Indent) {
+            # Indented continuation (no number)
+            $grid = New-Object System.Windows.Controls.Grid
+            $col0 = New-Object System.Windows.Controls.ColumnDefinition
+            $col0.Width          = [System.Windows.GridLength]::Auto
+            $col0.SharedSizeGroup = "BulletNum"
+            $col1 = New-Object System.Windows.Controls.ColumnDefinition
+            $col1.Width = [System.Windows.GridLength]::new(1, [System.Windows.GridUnitType]::Star)
+            [void]$grid.ColumnDefinitions.Add($col0)
+            [void]$grid.ColumnDefinitions.Add($col1)
+            $grid.Margin = [System.Windows.Thickness]::new(0, 8, 0, 0)
+
+            $spacer = New-Object System.Windows.Controls.TextBlock
+            $spacer.Margin = [System.Windows.Thickness]::new(0, 0, 8, 0)
+            [System.Windows.Controls.Grid]::SetColumn($spacer, 0)
+            [void]$grid.Children.Add($spacer)
+
+            $tb = New-Object System.Windows.Controls.TextBlock
+            $tb.TextWrapping = [System.Windows.TextWrapping]::Wrap
+            Add-TextBlockInlines -TextBlock $tb -Text $part.Text -Bold:$part.Bold
+            [System.Windows.Controls.Grid]::SetColumn($tb, 1)
+            [void]$grid.Children.Add($tb)
+
+            [void]$Panel.Children.Add($grid)
+        }
+        else {
+            # Regular paragraph
+            $tb = New-Object System.Windows.Controls.TextBlock
+            $tb.TextWrapping = [System.Windows.TextWrapping]::Wrap
+            $tb.Margin = [System.Windows.Thickness]::new(0, 8, 0, 0)
+            Add-TextBlockInlines -TextBlock $tb -Text $part.Text -Bold:$part.Bold
+            [void]$Panel.Children.Add($tb)
+        }
+    }
+}
+#endregion
+
+#region EULA
+$EULARegPath = "HKCU:\Software\Microsoft\CESDiagnosticTools"
+$EULARegName = "AdfsEULAAccept"
+
+function Test-EULAAccepted {
+    try {
+        $val = Get-ItemPropertyValue -Path $EULARegPath -Name $EULARegName -ErrorAction Stop
+        return [bool]$val
+    } catch {
+        return $false
+    }
+}
+
+function Set-EULAAccepted {
+    param([bool]$Accepted)
+    if (!(Test-Path $EULARegPath)) {
+        New-Item -Path $EULARegPath -Force | Out-Null
+    }
+    Set-ItemProperty -Path $EULARegPath -Name $EULARegName -Value ([int]$Accepted) -Type DWord
+}
+
+function Show-EULADialog {
+
+$eulaParts = @(
+    @{ Text = "MICROSOFT SOFTWARE LICENSE TERMS"; Bold = $true }
+    @{ Text = "Microsoft Diagnostic Scripts and Utilities"; Bold = $true }
+    @{ Text = "These license terms are an agreement between you and Microsoft Corporation (or one of its affiliates). IF YOU COMPLY WITH THESE LICENSE TERMS, YOU HAVE THE RIGHTS BELOW. BY USING THE SOFTWARE, YOU ACCEPT THESE TERMS."; Bold = $false }
+    @{ Text = "1. INSTALLATION AND USE RIGHTS. Subject to the terms and restrictions set forth in this license, Microsoft Corporation (`"Microsoft`") grants you (`"Customer`" or `"you`") a non-exclusive, non-assignable, fully paid-up license to use and reproduce the script or utility provided under this license (the `"Software`"), solely for Customer's internal business purposes, to help Microsoft troubleshoot issues with one or more Microsoft products, provided that such license to the Software does not include any rights to other Microsoft technologies (such as products or services). `"Use`" means to copy, install, execute, access, display, run or otherwise interact with the Software."; Bold = $false; Indent = $true }
+    @{ Text = "You may not sublicense the Software or any use of it through distribution, network access, or otherwise. Microsoft reserves all other rights not expressly granted herein, whether by implication, estoppel or otherwise. You may not reverse engineer, decompile or disassemble the Software, or otherwise attempt to derive the source code for the Software, except and to the extent required by third party licensing terms governing use of certain open source components that may be included in the Software, or remove, minimize, block, or modify any notices of Microsoft or its suppliers in the Software. Neither you nor your representatives may use the Software provided hereunder: (i) in a way prohibited by law, regulation, governmental order or decree; (ii) to violate the rights of others; (iii) to try to gain unauthorized access to or disrupt any service, device, data, account or network; (iv) to distribute spam or malware; (v) in a way that could harm Microsoft's IT systems or impair anyone else's use of them; (vi) in any application or situation where use of the Software could lead to the death or serious bodily injury of any person, or to physical or environmental damage; or (vii) to assist, encourage or enable anyone to do any of the above."; Bold = $false; Indent = $true }
+    @{ Text = "2. DATA. Customer owns all rights to data that it may elect to share with Microsoft through using the Software. You can learn more about data collection and use in the help documentation and the privacy statement at https://aka.ms/privacy . Your use of the Software operates as your consent to these practices."; Bold = $false; Indent = $true }
+    @{ Text = "3. FEEDBACK. If you give feedback about the Software to Microsoft, you grant to Microsoft, without charge, the right to use, share and commercialize your feedback in any way and for any purpose. You will not provide any feedback that is subject to a license that would require Microsoft to license its software or documentation to third parties due to Microsoft including your feedback in such software or documentation."; Bold = $false; Indent = $true }
+    @{ Text = "4. EXPORT RESTRICTIONS. Customer must comply with all domestic and international export laws and regulations that apply to the Software, which include restrictions on destinations, end users, and end use. For further information on export restrictions, visit https://aka.ms/exporting ."; Bold = $false; Indent = $true }
+    @{ Text = "5. REPRESENTATIONS AND WARRANTIES. Customer will comply with all applicable laws under this agreement, including in the delivery and use of all data. Customer or a designee agreeing to these terms on behalf of an entity represents and warrants that it (i) has the full power and authority to enter into and perform its obligations under this agreement, (ii) has full power and authority to bind its affiliates or organization to the terms of this agreement, and (iii) will secure the permission of the other party prior to providing any source code in a manner that would subject the other party's intellectual property to any other license terms or require the other party to distribute source code to any of its technologies."; Bold = $false; Indent = $true }
+    @{ Text = "6. DISCLAIMER OF WARRANTY. THE SOFTWARE IS PROVIDED `"AS IS,`" WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL MICROSOFT OR ITS LICENSORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THE SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE."; Bold = $false; Indent = $true }
+    @{ Text = "7. LIMITATION ON AND EXCLUSION OF DAMAGES. IF YOU HAVE ANY BASIS FOR RECOVERING DAMAGES DESPITE THE PRECEDING DISCLAIMER OF WARRANTY, YOU CAN RECOVER FROM MICROSOFT AND ITS SUPPLIERS ONLY DIRECT DAMAGES UP TO U.S. `$5.00. YOU CANNOT RECOVER ANY OTHER DAMAGES, INCLUDING CONSEQUENTIAL, LOST PROFITS, SPECIAL, INDIRECT, OR INCIDENTAL DAMAGES. This limitation applies to (i) anything related to the Software, services, content (including code) on third party Internet sites, or third party applications; and (ii) claims for breach of contract, warranty, guarantee, or condition; strict liability, negligence, or other tort; or any other claim; in each case to the extent permitted by applicable law. It also applies even if Microsoft knew or should have known about the possibility of the damages. The above limitation or exclusion may not apply to you because your state, province, or country may not allow the exclusion or limitation of incidental, consequential, or other damages."; Bold = $false; Indent = $true }
+    @{ Text = "8. BINDING ARBITRATION AND CLASS ACTION WAIVER. This section applies if you live in (or, if a business, your principal place of business is in) the United States. If you and Microsoft have a dispute, you and Microsoft agree to try for 60 days to resolve it informally. If you and Microsoft can't, you and Microsoft agree to binding individual arbitration before the American Arbitration Association under the Federal Arbitration Act (`"FAA`"), and not to sue in court in front of a judge or jury. Instead, a neutral arbitrator will decide. Class action lawsuits, class-wide arbitrations, private attorney-general actions, and any other proceeding where someone acts in a representative capacity are not allowed; nor is combining individual proceedings without the consent of all parties. The complete Arbitration Agreement contains more terms and is at https://aka.ms/arb-agreement-4 . You and Microsoft agree to these terms."; Bold = $false; Indent = $true }
+    @{ Text = "9. LAW AND VENUE. If U.S. federal jurisdiction exists, you and Microsoft consent to exclusive jurisdiction and venue in the federal court in King County, Washington for all disputes heard in court (excluding arbitration). If not, you and Microsoft consent to exclusive jurisdiction and venue in the Superior Court of King County, Washington for all disputes heard in court (excluding arbitration)."; Bold = $false; Indent = $true }
+    @{ Text = "10. ENTIRE AGREEMENT. This agreement, and any other terms Microsoft may provide for supplements, updates, or third-party applications, is the entire agreement for the software."; Bold = $false; Indent = $true }
 )
 
-function WriteRichBoxText {
-    param (
-        [Array]$textElements
-    )
-     $Description.text=""
-    foreach ($element in $textElements) {
-        $Description.SelectionStart = $Description.TextLength
-        $Description.SelectionLength = 0
-        if ($element.Style -eq "bold") {
-          $font = New-Object System.Drawing.Font('Arial', 10, [System.Drawing.FontStyle]::Bold)
-        } 
-        else {
-          $font = New-Object System.Drawing.Font('Arial', 10, [System.Drawing.FontStyle]::Regular)
-        }
-        $Description.SelectionFont = $font
-        if (!$element.Color) {
-            $element.Color= [System.Drawing.Color]::FromName('black')
-        } 
-        $Description.SelectionColor = [System.Drawing.Color]::FromName($element.Color)
-        $Description.AppendText($element.Text + [Environment]::NewLine)
-        $Description.SelectionStart      = 0
-    }
+[xml]$eulaXaml = @"
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="ADFS Diagnostic Tools - License Agreement"
+        Height="800" Width="860" 
+        WindowStartupLocation="CenterScreen"
+        ResizeMode="NoResize"
+        Background="#F3F3F3">
+    <Window.Resources>
+        <SolidColorBrush x:Key="AccentBrush" Color="#0078D4"/>
+        <SolidColorBrush x:Key="AccentHoverBrush" Color="#106EBE"/>
+        <SolidColorBrush x:Key="AccentPressedBrush" Color="#005A9E"/>
+        <SolidColorBrush x:Key="CardBrush" Color="#FFFFFF"/>
+        <SolidColorBrush x:Key="BorderBrush" Color="#E1E1E1"/>
+        <SolidColorBrush x:Key="TextPrimary" Color="#1A1A1A"/>
+        <FontFamily x:Key="AppFont">Segoe UI</FontFamily>
+
+        <Style x:Key="PrimaryButton" TargetType="Button">
+            <Setter Property="Background" Value="{StaticResource AccentBrush}"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="FontFamily" Value="{StaticResource AppFont}"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Padding" Value="24,5"/>
+            <Setter Property="MinWidth" Value="100"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="border" Background="{TemplateBinding Background}"
+                                CornerRadius="4" Padding="{TemplateBinding Padding}" BorderThickness="0">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="{StaticResource AccentHoverBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="{StaticResource AccentPressedBrush}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="SecondaryButton" TargetType="Button">
+            <Setter Property="Background" Value="{StaticResource CardBrush}"/>
+            <Setter Property="Foreground" Value="{StaticResource TextPrimary}"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="FontFamily" Value="{StaticResource AppFont}"/>
+            <Setter Property="Padding" Value="24,5"/>
+            <Setter Property="MinWidth" Value="100"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="border" Background="{TemplateBinding Background}"
+                                CornerRadius="4" Padding="{TemplateBinding Padding}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                BorderBrush="{TemplateBinding BorderBrush}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="#E8E8E8"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="#D0D0D0"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0" Margin="0,0,0,8">
+            <TextBlock Text="License Agreement" FontSize="20" FontWeight="Bold"
+                       FontFamily="{StaticResource AppFont}" Foreground="{StaticResource AccentBrush}"/>
+            <Rectangle Height="2" Fill="{StaticResource AccentBrush}" Margin="0,6,0,0"
+                       HorizontalAlignment="Left" Width="50" RadiusX="1" RadiusY="1"/>
+            <TextBlock Text="Please read the following license agreement carefully before continuing."
+                       FontSize="13" FontFamily="{StaticResource AppFont}" Foreground="{StaticResource TextPrimary}"
+                       Margin="0,8,0,0"/>
+        </StackPanel>
+
+        <Border Grid.Row="1" Background="White" CornerRadius="6"
+                BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" Margin="0,4,0,0">
+            <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="12,8">
+                <StackPanel x:Name="EulaPanel" Grid.IsSharedSizeScope="True"
+                            TextBlock.FontSize="13" TextBlock.FontFamily="{StaticResource AppFont}"
+                            TextBlock.Foreground="{StaticResource TextPrimary}" TextBlock.LineHeight="20"/>
+            </ScrollViewer>
+        </Border>
+
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
+            <Button x:Name="AcceptBtn" Content="Accept" Style="{StaticResource PrimaryButton}" Margin="0,0,10,0"/>
+            <Button x:Name="DeclineBtn" Content="Decline" Style="{StaticResource SecondaryButton}"/>
+        </StackPanel>
+    </Grid>
+</Window>
+"@
+
+    $reader = New-Object System.Xml.XmlNodeReader $eulaXaml
+    $eulaWindow = [Windows.Markup.XamlReader]::Load($reader)
+
+    $eulaPanel  = $eulaWindow.FindName("EulaPanel")
+    $acceptBtn  = $eulaWindow.FindName("AcceptBtn")
+    $declineBtn = $eulaWindow.FindName("DeclineBtn")
+
+    Build-TextBlockPanel -Panel $eulaPanel -Parts $eulaParts
+
+    $acceptBtn.Add_Click({
+        $eulaWindow.Tag = "Accept"
+        $eulaWindow.Close()
+    })
+
+    $declineBtn.Add_Click({
+        $eulaWindow.Tag = "Decline"
+        $eulaWindow.Close()
+    })
+
+    $null = $eulaWindow.ShowDialog()
+    return $eulaWindow.Tag
 }
+#endregion EULA
 
 Function RunDialog {
-[System.Windows.Forms.Application]::EnableVisualStyles()
 
-$Form                            = New-Object system.Windows.Forms.Form
-$Form.ClientSize                 = '800,600'
-$Form.text                       = "ADFS Trace Collector"
-$Form.TopMost                    = $false
-$Form.StartPosition              = 'CenterScreen'
-$Form.MaximizeBox                = $false
-$Form.MinimizeBox                = $false
-$Form.FormBorderStyle            = [System.Windows.Forms.FormBorderStyle]::Fixed3D
+$advancedHeader = if (!$IsProxy) { "Advanced Options (can cause service restarts)" } else { "Advanced Options" }
+$advancedLabel  = if (!$IsProxy) { "LDAP Traces" } else { "WAP Traces" }
 
-# Text field
-$Description                     = New-Object system.Windows.Forms.RichTextBox
-$Description.Size                = new-object System.Drawing.Size(770, 360)
-$Description.multiline           = $true
-$Description.location            = New-Object System.Drawing.Point(15,0)
-$Description.Font                = 'Arial,10'
-$Description.ScrollBars          = 'Vertical'
-$Description.ReadOnly            = $true
-$Description.DetectUrls          = $true
-WriteRichBoxText $DisplayText
+[xml]$xaml = @"
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="ADFS Trace Collector"
+        Width="860" Height="680"
+        WindowStartupLocation="CenterScreen"
+        ResizeMode="NoResize"
+        Background="#F3F3F3">
 
-$checkBoxWidth = 180 # Width for each checkbox
-$xOffset = 10 # Initial X offset for checkbox
-$yOffset = 20 # Y offset for aligning checkboxes
+    <Window.Resources>
+        <!-- Accent color -->
+        <SolidColorBrush x:Key="AccentBrush" Color="#0078D4"/>
+        <SolidColorBrush x:Key="AccentHoverBrush" Color="#106EBE"/>
+        <SolidColorBrush x:Key="AccentPressedBrush" Color="#005A9E"/>
+        <SolidColorBrush x:Key="CardBrush" Color="#ffffff"/>
+        <SolidColorBrush x:Key="BorderBrush" Color="#E1E1E1"/>
+        <SolidColorBrush x:Key="SubtleBrush" Color="#f9f9f9"/>
+        <SolidColorBrush x:Key="TextPrimary" Color="#1A1A1A"/>
+        <SolidColorBrush x:Key="TextSecondary" Color="#616161"/>
+        <SolidColorBrush x:Key="DisabledText" Color="#A0A0A0"/>
 
-$Scenario = New-Object System.Windows.Forms.GroupBox
-$Scenario.Text = "Scenario"
-$Scenario.Location = New-Object System.Drawing.Point(15, 375) # Positioned below the RichTextBox
-$Scenario.Size = new-object System.Drawing.Size(770, 50)
-$cScenario = @("Configuration only", "Runtime Tracing")
+        <!-- App Font -->
+        <FontFamily x:Key="AppFont">Segoe UI</FontFamily>
 
-for ($i = 0; $i -lt $cScenario.Length; $i++) {
-    $checkBox = New-Object System.Windows.Forms.CheckBox
-    $checkBox.Text = $cScenario[$i]
-    $checkBox.AutoSize = $true
-    $checkBox.Location = New-Object System.Drawing.Point(($xOffset + ($i * $checkBoxWidth)), $yOffset)
+        <!-- Modern GroupBox Style -->
+        <Style x:Key="ModernGroupBox" TargetType="GroupBox">
+            <Setter Property="Margin" Value="0,4,0,0"/>
+            <Setter Property="Padding" Value="10,4,10,6"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Background" Value="{StaticResource CardBrush}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="GroupBox">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+                            <Border Grid.Row="0" Background="{StaticResource SubtleBrush}"
+                                    BorderBrush="{StaticResource BorderBrush}" BorderThickness="1,1,1,0"
+                                    CornerRadius="6,6,0,0" Padding="12,5">
+                                <ContentPresenter ContentSource="Header"
+                                    TextBlock.FontWeight="SemiBold" TextBlock.FontSize="13"
+                                    TextBlock.Foreground="{StaticResource TextPrimary}"/>
+                            </Border>
+                            <Border Grid.Row="1" Background="{StaticResource CardBrush}"
+                                    BorderBrush="{StaticResource BorderBrush}" BorderThickness="1,0,1,1"
+                                    CornerRadius="0,0,6,6" Padding="{TemplateBinding Padding}">
+                                <ContentPresenter/>
+                            </Border>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+                </Setter>
+        </Style>
 
-    switch -Wildcard ($cScenario[$i]) {
-      "Configuration only" { Set-Variable -Name cfgonly -Value $checkBox -Force }
-      "Runtime Tracing" { Set-Variable -Name TracingMode -Value $checkBox -Force }
-      }
-    $Scenario.Controls.Add($checkBox)
-}
-# Options GroupBox
-$Options = New-Object System.Windows.Forms.GroupBox
-$Options.Text = "Options"
-$Options.Location = New-Object System.Drawing.Point(15, 430) # Positioned below the ScenarioGroup
-$Options.Size = new-object System.Drawing.Size(480, 50) # Adjust the size as needed 780,50
+        <!-- Modern CheckBox Style -->
+        <Style TargetType="CheckBox">
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="FontFamily" Value="{StaticResource AppFont}"/>
+            <Setter Property="Foreground" Value="{StaticResource TextPrimary}"/>
+            <Setter Property="Margin" Value="0,4,20,4"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Style.Triggers>
+                <Trigger Property="IsEnabled" Value="False">
+                    <Setter Property="Foreground" Value="{StaticResource DisabledText}"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
 
-$cOptions = @("include Network Traces", "include Performance Counter")
+        <!-- Primary Button Style (OK) -->
+        <Style x:Key="PrimaryButton" TargetType="Button">
+            <Setter Property="Background" Value="{StaticResource AccentBrush}"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="FontFamily" Value="{StaticResource AppFont}"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Padding" Value="24,5"/>
+            <Setter Property="MinWidth" Value="100"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="border" Background="{TemplateBinding Background}"
+                                CornerRadius="4" Padding="{TemplateBinding Padding}"
+                                BorderThickness="0">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="{StaticResource AccentHoverBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="{StaticResource AccentPressedBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="border" Property="Background" Value="#CCE4F7"/>
+                                <Setter Property="Foreground" Value="#99BFDF"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
 
-for ($i = 0; $i -lt $cOptions.Length; $i++) {
-  $checkBox = New-Object System.Windows.Forms.CheckBox
-  $checkBox.Text = $cOptions[$i]
-  $checkBox.AutoSize = $true
-  $checkBox.Enabled= $false
-  $checkBox.Location = New-Object System.Drawing.Point(($xOffset + ($i * $checkBoxWidth)), $yOffset)
+        <!-- Secondary Button Style (Cancel / Browse) -->
+        <Style x:Key="SecondaryButton" TargetType="Button">
+            <Setter Property="Background" Value="{StaticResource CardBrush}"/>
+            <Setter Property="Foreground" Value="{StaticResource TextPrimary}"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="FontFamily" Value="{StaticResource AppFont}"/>
+            <Setter Property="Padding" Value="24,5"/>
+            <Setter Property="MinWidth" Value="100"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="border" Background="{TemplateBinding Background}"
+                                CornerRadius="4" Padding="{TemplateBinding Padding}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                BorderBrush="{TemplateBinding BorderBrush}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="#E8E8E8"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="#D0D0D0"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
 
-  switch -Wildcard ($cOptions[$i]) {
-    "include Network Traces" { Set-Variable -Name NetTrace -Value $checkBox -Force }
-    "include Performance Counter" { Set-Variable -Name perfc -Value $checkBox -Force }
+        <!-- Modern TextBox Style -->
+        <Style TargetType="TextBox">
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="FontFamily" Value="{StaticResource AppFont}"/>
+            <Setter Property="Padding" Value="10,5"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Background" Value="White"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TextBox">
+                        <Border x:Name="border" Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="4">
+                            <ScrollViewer x:Name="PART_ContentHost" Margin="0"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="border" Property="BorderBrush" Value="#ABABAB"/>
+                            </Trigger>
+                            <Trigger Property="IsFocused" Value="True">
+                                <Setter TargetName="border" Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+                                <Setter TargetName="border" Property="BorderThickness" Value="2"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Title Bar -->
+        <StackPanel Grid.Row="0" Margin="0,0,0,8">
+            <TextBlock FontWeight="Bold" FontFamily="{StaticResource AppFont}" Foreground="{StaticResource AccentBrush}">
+                <Run Text="ADFS Trace Collector" FontSize="20"/>
+                <Run Text=" $scriptversion" FontSize="13"/>
+            </TextBlock>
+            <Rectangle Height="2" Fill="{StaticResource AccentBrush}" Margin="0,6,0,0"
+                       HorizontalAlignment="Left" Width="50" RadiusX="1" RadiusY="1"/>
+        </StackPanel>
+
+        <!-- Description Area -->
+        <Border Grid.Row="1" Background="White" CornerRadius="6"
+                BorderBrush="{StaticResource BorderBrush}" BorderThickness="1"
+                Margin="0,0,0,4">
+            <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="16,12">
+                <StackPanel x:Name="DescriptionPanel" Grid.IsSharedSizeScope="True"
+                            TextBlock.FontSize="13" TextBlock.FontFamily="{StaticResource AppFont}"
+                            TextBlock.Foreground="{StaticResource TextPrimary}" TextBlock.LineHeight="20"/>
+            </ScrollViewer>
+        </Border>
+
+        <!-- Scenario Group -->
+        <GroupBox Grid.Row="2" Header="Scenario" Style="{StaticResource ModernGroupBox}">
+            <Canvas Height="22" Margin="0,2,0,0">
+                <CheckBox x:Name="cfgonly" Content="Configuration only" Canvas.Left="0" Canvas.Top="2"/>
+                <CheckBox x:Name="TracingMode" Content="Runtime Tracing" Canvas.Left="240" Canvas.Top="2"/>
+            </Canvas>
+        </GroupBox>
+
+        <!-- Options Row -->
+        <Grid Grid.Row="3" Margin="0,4,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+
+            <GroupBox Grid.Column="0" Header="Options" Style="{StaticResource ModernGroupBox}"
+                      Margin="0,0,8,0">
+                <Canvas Height="22" Margin="0,2,0,0">
+                    <CheckBox x:Name="NetTrace" Content="Include Network Traces" IsEnabled="False" Canvas.Left="0" Canvas.Top="2"/>
+                    <CheckBox x:Name="perfc" Content="Include Performance Counter" IsEnabled="False" Canvas.Left="240" Canvas.Top="2"/>
+                </Canvas>
+            </GroupBox>
+
+            <GroupBox Grid.Column="1" x:Name="AdvancedGroup" Style="{StaticResource ModernGroupBox}"
+                      MinWidth="260" Margin="0">
+                <WrapPanel Orientation="Horizontal" Margin="0,2,0,0">
+                    <CheckBox x:Name="advancedCheck" IsEnabled="False"/>
+                </WrapPanel>
+            </GroupBox>
+        </Grid>
+
+        <!-- Destination Folder -->
+        <GroupBox Grid.Row="4" Style="{StaticResource ModernGroupBox}"
+                  Header="Destination Folder">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBox x:Name="TargetFolder" Grid.Column="0" Margin="0,4,8,0"
+                         VerticalContentAlignment="Center"/>
+                <Button x:Name="SelFolder" Grid.Column="1" Content="Browse..."
+                        Style="{StaticResource SecondaryButton}" Margin="0,4,0,0"
+                        MinWidth="90" Padding="16,5"/>
+            </Grid>
+        </GroupBox>
+
+        <!-- Action Buttons -->
+        <StackPanel Grid.Row="5" Orientation="Horizontal" HorizontalAlignment="Right"
+                    Margin="0,12,0,0">
+            <Button x:Name="Okbtn" Content="OK" Style="{StaticResource PrimaryButton}"
+                    IsEnabled="False" Margin="0,0,10,0"/>
+            <Button x:Name="cnlbtn" Content="Cancel" Style="{StaticResource SecondaryButton}"/>
+        </StackPanel>
+    </Grid>
+</Window>
+"@
+
+# Parse XAML
+$reader = New-Object System.Xml.XmlNodeReader $xaml
+$Window = [Windows.Markup.XamlReader]::Load($reader)
+
+# Get named controls
+$DescriptionPanel  = $Window.FindName("DescriptionPanel")
+$cfgonly           = $Window.FindName("cfgonly")
+$TracingMode       = $Window.FindName("TracingMode")
+$NetTrace          = $Window.FindName("NetTrace")
+$perfc             = $Window.FindName("perfc")
+$AdvancedGroup     = $Window.FindName("AdvancedGroup")
+$advancedCheck     = $Window.FindName("advancedCheck")
+$TargetFolder      = $Window.FindName("TargetFolder")
+$SelFolder         = $Window.FindName("SelFolder")
+$Okbtn             = $Window.FindName("Okbtn")
+$cnlbtn            = $Window.FindName("cnlbtn")
+
+# Set dynamic header and label for the advanced options
+$AdvancedGroup.Header  = $advancedHeader
+$advancedCheck.Content = $advancedLabel
+
+# Build the description with inline formatting (Bold support via Runs)
+$descriptionParts = @(
+    @{ Text = "This script collects diagnostic data from your ADFS environment, including configuration details and related Windows settings."; Bold = $false; Indent = $false }
+    @{ Text = "The collected data may contain Personally Identifiable Information (PII) and/or sensitive data, such as (but not limited to) IP addresses; PC names; and user names."; Bold = $false; Indent = $false }
+    @{ Text = "When sharing data with Microsoft CSS, a **Secure File Transfer** tool must be used - Discuss this with your support professional and also any concerns you may have."; Bold = $false; Indent = $false }
+    @{ Text = "The script supports two scenario:  **Configuration only** and **Runtime tracing**."; Bold = $false; Indent = $false }
+    @{ Text = "**Configuration only** collects static configuration information and relevant event logs and is primarily used for port-mortem scenarios and when validating existing configurations."; Bold = $false; Indent = $true }
+    @{ Text = "**Runtime tracing** allows for troubleshooting problems that can be actively reproduced. The data collection in Runtime tracing is furthermore extensible through the following options:
+`t-***Network Traces*** : *enabled by default* 
+`t-***Performance Counters*** : *disabled by default; only need for performance related issues*
+`t-***LDAP traces*** : *ADFS servers only; disabled by default - DO NOT enable this option unless required by Microsoft CSS*
+`t-***WAP Traces*** : *WAP servers only; disabled by default - use when troubleshooting app publishing*"; Bold = $false; Indent = $true }
+    @{ Text = "*unless otherwise instructed we recommend to keep the default options"; Bold = $false; Indent = $true }
+    @{ Text = "Type a file path or click Browse to select a destination folder for the collected data. Ensure that the selected location has sufficient free space (expect between **4 GB** and **10 GB**) and that you have write permissions to it."; Bold = $false; Indent = $true }
+    @{ Text = "Once you click **OK**, the script collects the configuration informations and prepares the trace logs it. It will pause when preparations are completed awaiting further input. This pause let's you set up tracing on additional farm nodes."; Bold = $false; Indent = $true }
+    @{ Text = "When all systems are setup for tracing press '**CTRL + Y**' to start capturing data. Repeat this step on each node you want to run the traces on."; Bold = $false; Indent = $true }
+    @{ Text = "The script will confirm when tracing is active and you can then reproduce the problem.
+Press '**CTRL + Y**' again to stop the tracing."; Bold = $false; Indent = $true }
+    @{ Text = "At compleption, the temporary folder will be compressed into a single **.zip** file at the specified destination folder."; Bold = $false; Indent = $true }
+    @{ Text = "**Important:**
+`t- try to run the capture during periods of low authentication activity.
+`t- the script is intended for short diagnostic sessions - do not leave it running for extended periods.
+`t- Security Events: limited to the duration of the runtime trace; last 60 minutes when using configuration only
+`t- traces are written to circular buffers inside a temporary folder at the selected path (e.g. C:\tracing\temporary)."; Bold = $false; Indent = $true }
+)
+
+Build-TextBlockPanel -Panel $DescriptionPanel -Parts $descriptionParts
+
+# ---- Event Handlers ----
+
+# "Configuration only" checked/unchecked
+$cfgonly.Add_Checked({
+    $TracingMode.IsEnabled  = $false
+    $NetTrace.IsEnabled     = $false
+    $perfc.IsEnabled        = $false
+    $advancedCheck.IsEnabled = $false
+})
+$cfgonly.Add_Unchecked({
+    $TracingMode.IsEnabled = $true
+    $NetTrace.IsEnabled    = $false
+})
+
+# "Runtime Tracing" checked/unchecked
+$TracingMode.Add_Checked({
+    $cfgonly.IsEnabled       = $false
+    $NetTrace.IsEnabled      = $true
+    $NetTrace.IsChecked      = $true
+    $perfc.IsEnabled         = $true
+    $advancedCheck.IsEnabled = $true
+})
+$TracingMode.Add_Unchecked({
+    $cfgonly.IsEnabled       = $true
+    $NetTrace.IsChecked      = $false
+    $NetTrace.IsEnabled      = $false
+    $perfc.IsChecked         = $false
+    $perfc.IsEnabled         = $false
+    $advancedCheck.IsChecked = $false
+    $advancedCheck.IsEnabled = $false
+})
+
+# Browse button (WPF folder browser — works on Server Core)
+$SelFolder.Add_Click({
+    $selected = Show-FolderBrowserDialog -InitialPath $TargetFolder.Text
+    if ($selected) {
+        $TargetFolder.Text = $selected
     }
-  $Options.Controls.Add($checkBox)
-}
-##### Advanced Options GroupBox
-$aOptions = New-Object System.Windows.Forms.GroupBox
-$aOptions.Text = if(!$IsProxy){ "advanced Options (can cause service restarts)"} else { "advanced Options" }
-$aOptions.Location = New-Object System.Drawing.Point(500, 430) # Positioned below the ScenarioGroup
-$aOptions.Size = new-object System.Drawing.Size(285, 50) # Adjust the size as needed
+})
 
-$caOptions= if(!$IsProxy){ "LDAP Traces" } else { "WAP Traces" }
+# Validate path on text change
+$TargetFolder.Add_TextChanged({
+    $Okbtn.IsEnabled = filepathvalidformat $TargetFolder.Text
+})
 
-for ($i = 0; $i -lt $caOptions.count; $i++) {
-  $checkBox = New-Object System.Windows.Forms.CheckBox
-  $checkBox.Text = $caOptions
-  $checkBox.AutoSize = $true
-  $checkBox.Enabled= $false
-  $checkBox.Location = New-Object System.Drawing.Point(($xOffset + ($i * $checkBoxWidth)), $yOffset)
+# OK button
+$Okbtn.Add_Click({
+    $Window.Tag = "OK"
+    $Window.Close()
+})
 
-  switch -Wildcard ($caOptions) {
-    "LDAP Traces" { Set-Variable -Name ldapt -Value $checkBox -Force }
-    "WAP Traces" { Set-Variable -Name wapt -Value $checkBox -Force }
+# Cancel button
+$cnlbtn.Add_Click({
+    $Window.Tag = "Cancel"
+    $Window.Close()
+})
+
+# Show the window
+$null = $Window.ShowDialog()
+
+if ($Window.Tag -eq "OK") {
+    return New-Object psobject -Property @{
+        Path             = $TargetFolder.Text
+        TraceEnabled     = $TracingMode.IsChecked
+        NetTraceEnabled  = $NetTrace.IsChecked
+        ConfigOnly       = $cfgonly.IsChecked
+        PerfCounter      = $perfc.IsChecked
+        LdapTraceEnabled = if (!$IsProxy) { $advancedCheck.IsChecked } else { $false }
+        WAPTraceEnabled  = if ($IsProxy)  { $advancedCheck.IsChecked } else { $false }
     }
-  $aOptions.Controls.Add($checkBox)
 }
-
-#####
-$label = New-Object System.Windows.Forms.GroupBox
-$label.Text = 'Type a path to the Destination Folder or Click "Browse..." to select the Folder'
-$label.Location = New-Object System.Drawing.Point(15,480) # Positioned below the ScenarioGroup
-$label.Size = new-object System.Drawing.Size(585, 60) # Adjust the size as needed
-
-#Text Field for the Export Path to store the results
-$TargetFolder                    = New-Object system.Windows.Forms.TextBox
-$TargetFolder.text               = ""
-$TargetFolder.Size               = new-object System.Drawing.Size(470, 30) 
-$TargetFolder.location           = New-Object System.Drawing.Point(10,20)
-$TargetFolder.Font               = 'Arial,13'
-
-$SelFolder                       = New-Object system.Windows.Forms.Button
-$SelFolder.text                  = "Browse..."
-$SelFolder.Size                  = new-object System.Drawing.Size(90, 29)
-$SelFolder.location              = New-Object System.Drawing.Point(486,20)
-$SelFolder.Font                  = 'Arial,10'
-
-$label.Controls.AddRange(@($TargetFolder,$SelFolder))
-
-$Okbtn                           = New-Object system.Windows.Forms.Button
-$Okbtn.text                      = "OK"
-$Okbtn.Size                      = new-object System.Drawing.Size(70, 30) 
-$Okbtn.location                  = New-Object System.Drawing.Point(620,540)
-$Okbtn.Font                      = 'Arial,10'
-$Okbtn.DialogResult              = [System.Windows.Forms.DialogResult]::OK
-$Okbtn.Enabled                   = $false
-
-$cnlbtn                          = New-Object system.Windows.Forms.Button
-$cnlbtn.text                     = "Cancel"
-$cnlbtn.Size                     = new-object System.Drawing.Size(70, 30) 
-$cnlbtn.location                 = New-Object System.Drawing.Point(700,540)
-$cnlbtn.Font                     = 'Arial,10'
-$cnlbtn.DialogResult             = [System.Windows.Forms.DialogResult]::Cancel
-
-$Form.controls.AddRange(@($Description,$Scenario,$Options,$aOptions,$Okbtn,$cnlbtn,$label))
-
-$cfgonly.Add_CheckStateChanged({ if ($cfgonly.checked) {
-                                    $TracingMode.Enabled = $false; 
-                                    $NetTrace.Enabled = $false; 
-                                    $perfc.Enabled = $false; 
-                                    if(!$IsProxy){ $ldapt.Enabled=$false}else {$wapt.Enabled = $false}
-                                }
-                                else {
-                                    $TracingMode.Enabled = $true; $NetTrace.Enabled = $false
-                                }
-                              })
-
-$TracingMode.Add_CheckStateChanged({ if ($TracingMode.checked){
-                                    $cfgonly.Enabled = $false; 
-                                    $NetTrace.Enabled = $true;
-                                    $NetTrace.Checked = $true; 
-                                    $perfc.Enabled = $true; 
-                                    if(!$IsProxy){ $ldapt.Enabled=$true}else {$wapt.Enabled = $true}
-                                }
-                                else {
-                                    $cfgonly.Enabled = $true;
-                                    $NetTrace.Checked = $false;
-                                    $NetTrace.Enabled = $false;
-                                    $perfc.Checked = $false; 
-                                    $perfc.Enabled = $false;
-                                    if(!$IsProxy) { 
-                                        $ldapt.Checked = $false;
-                                        $ldapt.Enabled = $false;
-                                    }
-                                    else {
-                                        $wapt.Checked = $false;
-                                        $wapt.Enabled = $false;
-                                    }
-                                }
-                              })
-
-#For future Versions we may add addional dependencies to the Network Trace.
-#$NetTrace.Add_CheckedChanged({ })
-$Description.add_LinkClicked({ Start-Process -FilePath $_.LinkText })
-
-$SelFolder.Add_Click({  $FolderDialog = New-Object windows.forms.FolderBrowserDialog
-                        $FolderDialog.RootFolder = "Desktop"
-                        $FolderDialog.ShowDialog()
-                        $TargetFolder.text  = $FolderDialog.SelectedPath
- })
-
-$TargetFolder.Add_TextChanged({ $Okbtn.Enabled = filepathvalidformat $TargetFolder.Text; })
-$FormsCompleted = $Form.ShowDialog()
-
-if ($FormsCompleted -eq [System.Windows.Forms.DialogResult]::OK) {
-       return New-Object psobject -Property @{
-            Path    = $TargetFolder.text
-            TraceEnabled = $TracingMode.Checked
-            NetTraceEnabled = $NetTrace.Checked
-            ConfigOnly = $cfgonly.Checked
-            PerfCounter =$perfc.Checked
-            LdapTraceEnabled=$ldapt.Checked
-            WAPTraceEnabled=$wapt.Checked
-        }
-        $Form.dispose()
-    }
-elseif($FormsCompleted -eq [System.Windows.Forms.DialogResult]::Cancel) {
-    Write-host "Script was canceled by User" -ForegroundColor Red
-    $Form.dispose()
+else {
+    Write-Host "Script was canceled by User" -ForegroundColor Red
     exit
-    }
+}
 }
 
 Function Pause { param([String]$Message,[String]$MessageTitle,[String]$MessageC)
-   # "ReadKey" not supported in PowerShell ISE.
+   # "ReadKey" is not supported in PowerShell ISE.
    If ($psISE) {
-      # Show MessageBox UI instead
-      $Shell = New-Object -ComObject "WScript.Shell"
-      $Shell.Popup($Message, 0, $MessageTitle, 0)|Out-Null
-      Return
+    # Show MessageBox
+    [void][System.Windows.MessageBox]::Show($Message, $MessageTitle, 'OK')
+    Return
    }
    #If not ISE we prompt for key stroke
     Write-Host -NoNewline $MessageC -ForegroundColor Yellow
@@ -683,14 +1431,13 @@ function Get-CertificatesByStore {
         $mycert += $obj
     }
 
-    # We check ClientAuthIssuer only if a bidning was configured. An empty store can cause issues so warn.
+    # We check ClientAuthIssuer only if a binding was configured. An empty store can cause issues so warn.
     if ($StoreName -eq "ClientAuthIssuer" -and $mycert.Count -eq 0) {
         $mycert = "WARNING: ClientAuthIssuers is configured on an ADFS related binding but the Certificate store is empty. This can break Certificate Based authentication for users"
     }
 
     return $mycert
 }
-
 
 function Test-IsWID {
     # Try to get the SecurityTokenService object and its configuration DB connection string
@@ -936,7 +1683,6 @@ If a misconfiguration exists it is currently not known by this script.")
     
     return $message
 }
-
 
 function Get-AzureMFAConfig {
     $dbconfig = Test-IsWID
@@ -1252,7 +1998,6 @@ Function GatherTheRest {
 }
 
 function Enable-ADFSPerfcounters {
-
 Param(
 		[Parameter(Mandatory=$false)]
         [ValidateSet("ADFSProxy", "ADFSBackend")]
@@ -1263,7 +2008,6 @@ Param(
 		[string]$Action
 		)
 
-    #sanity checks
     if (-not $PSBoundParameters.ContainsKey('Scenario')) {
         "Missing Parameter. You must supply a Scenario. Allowed values: ADFSProxy, ADFSBackend.";
         break;
@@ -1274,7 +2018,6 @@ Param(
         break;
     }
 
-    #Action logic
     switch ($Action) {
 
         "Create" {  # create the perfcounter collection, we distinguish between WAP and ADFS scenario but always add general counters.
@@ -1410,6 +2153,7 @@ Function EnableWAPTrace {
         if ($TraceEnabled -and $WAPTraceEnabled) {
             Write-host "Starting WAP Tracing" -ForegroundColor DarkCyan
             Push-Location $TraceDir
+
             ForEach ($log in $WAPTraceOn) {
 	        cmd.exe /c $log |Out-Null
             }
@@ -1443,7 +2187,6 @@ function  Test-KRBEncTypePolicy {
     $EncType = 31
 
     $key = [Microsoft.Win32.Registry]::LocalMachine.OpenSubKey($keyPath)
-
     #if policy key exists try to get the value
     if (($key.Name)) {
         if ($key.GetValueNames() -icontains $valueName) {
@@ -1460,16 +2203,11 @@ function  Test-KRBEncTypePolicy {
     }
 
     #do we still need to look into the classic path  HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\Lsa\Kerberos\Parameters ? 
-    #if yes we will loop it in here.
-    
-    #desktop GPO allows to configure ETypes only and FutureFlags. if the value is greater than 0x1f in GPO we must expect that Futureflags had been set
     #remove the futureflag from enumeration
-
     if ($EncType -gt 31) {
         $EncType = $EncType - 2147483616
     }
     #watch out if there is someone configuring the regkeys manually instead via GPO, it might be they use wrong or negative values
-    # finally convert the value to a meaningful string and return
    return ([KrbEnum]::EnumerateKrb($EncType))
 }
 
@@ -1529,19 +2267,6 @@ Function Test-ADFSFarmnameIsNotCNAME {
 }
 
 function Get-ADFSFarmNameFromSSLBinding {
-    <#
-    .SYNOPSIS
-    Retrieves the ADFS farm name from SSL certificate bindings.
-    
-    .DESCRIPTION
-    This function examines SSL certificate bindings to identify the ADFS farm hostname.
-    It filters out localhost, enterprise registration, and certificate authentication endpoints
-    to find the primary ADFS service hostname.
-    
-    .OUTPUTS
-    String - Returns the first valid ADFS farm hostname found, or $null if none found.
-    #>
-    
     try {
         # Get all SSL certificate bindings first
         $sslCertificates = Get-AdfsSslCertificate
@@ -1722,7 +2447,6 @@ function Get-ServiceAccountDetails {
     }
 
     #Finally validate that Kerberos Etype Config is sound and we have a matching config between OS and Service Account
-    #some message strings
     $RC4NotSetMsg="The Service Account is not configured for AES support. Service tickets will be RC4 encrypted!
     `r`nWe recommend configuring the ADFS Service Account for AES Support.`r`nIn Active Directory configure the attribute 'msds-supportedencryptiontypes' for the ADFS ServiceAccount with a value of:`r`n24(decimal) => AES only `n or `n28(decimal) => AES & RC4" 
     
@@ -1730,17 +2454,14 @@ function Get-ServiceAccountDetails {
     `r`nThis configuration can lead to authentication failures and other erroneous behavior and MUST be corrected.
     `r`nWe recommend configuring the ADFS Service Account for AES Support.`r`nIn Active Directory configure the attribute 'msds-supportedencryptiontypes' for the ADFS ServiceAccount with a value of:`r`n24(decimal) => AES only `n or `n28(decimal) => AES & RC4" 
     
-    #get KrbConfig from OS Policy
     $HostKrbCfg = Test-KRBEncTypePolicy 
 
     #theoretically this cannot be null unless the module failed
     if (!($null -eq $HostKrbCfg)) {
          $gsad | Add-Member -MemberType NoteProperty -Name "KrbEtype from OS (Policy)" -Value $($HostKrbCfg -join " | ") 
     }
-
     #check etypes from ServiceAccountQuery if not set or explicitly 0 default to RC4
     #if we failed to find service account previously..skip etype config evaluation
-
     switch ($EncType) {   
         0  { $SvcKrbCfg = "RC4_HMAC"; 
              $gsad | Add-Member -MemberType NoteProperty -Name "KrbEtype from ServiceAccount" -Value "explicitly set to 0. Defaulting to RC4_HMAC"  
@@ -1977,7 +2698,8 @@ function Get-NetframeworkInstalledUpdates {
     $updates = New-Object -ComObject "Microsoft.Update.Session"
     $searcher = $updates.CreateUpdateSearcher()
     $historyCount = $searcher.GetTotalHistoryCount()
-    $updateHistory = $searcher.QueryHistory(0,$historyCount ) 
+    #Queryhistory will fail if HistoryCount returned is 0 so check this before calling QueryHistory to avoid errors in case there is no update history at all on the system
+    $updateHistory = if ($historyCount -gt 0 ) { $searcher.QueryHistory(0,$historyCount ) }
 
     # This will return a list of all updates installed over the existence of this system including Defender, Malicious Software Removal Tool etc..
     # We only care about Framework Cumulative Updates here (the last 5x) that got successfully installed
@@ -2083,122 +2805,138 @@ return $htmlTemplate
 #endregion
 ##########################################################################
 #region Execution
-
-if (IsAdminAccount){
-Write-host "Script is executed as Administrator. Resuming execution" -ForegroundColor Green
-
-if ([string]::IsNullOrEmpty($Path)) {
-    $RunProp = RunDialog
-    $Path = $RunProp.Path.ToString()
-    $TraceEnabled = $RunProp.TraceEnabled
-    $NetTraceEnabled = $RunProp.NetTraceEnabled
-    $ConfigOnly = $RunProp.ConfigOnly
-    $PerfCounter = $RunProp.PerfCounter
-    $LdapTraceEnabled= $RunProp.LdapTraceEnabled
-    $WAPTraceEnabled= $RunProp.WAPTraceEnabled
+# EULA check - verify acceptance before proceeding
+if ($AcceptEula) {
+    Set-EULAAccepted -Accepted $true
+    Write-Host "EULA accepted via -AcceptEula parameter" -ForegroundColor Green
 }
-elseif (![string]::IsNullOrEmpty($Path)) {
-    if($Tracing.IsPresent -eq $false){ $TraceEnabled=$false;$NetTraceEnabled=$false;$PerfCounter=$false;$LdapTraceEnabled=$false;$ConfigOnly=$true;$WAPTraceEnabled=$false }
-    else {
-        $TraceEnabled=$true;
-        $ConfigOnly=$false;
-        $LdapTraceEnabled=$false
-        $WAPTraceEnabled=$false
-        $PerfCounter=$false
-        if($NetworkTracing.IsPresent -eq $true){ $NetTraceEnabled=$true } else { $NetTraceEnabled=$false }
-        if($PerfTracing.IsPresent -eq $true) { $PerfCounter=$true } 
-        if(($LDAPTracing.IsPresent -eq $true) -and (!$IsProxy)) {  $LdapTraceEnabled=$true }  
-        if(($WAPTracing.IsPresent -eq $true) -and ($IsProxy))  { $WAPTraceEnabled=$true } 
+elseif (!(Test-EULAAccepted)) {
+    $eulaResult = Show-EULADialog
+    if ($eulaResult -eq "Accept") {
+        Set-EULAAccepted -Accepted $true
+        Write-Host "EULA accepted" -ForegroundColor Green
+    } else {
+        Write-Host "EULA declined. Exiting." -ForegroundColor Red
+        exit
     }
 }
 
-if(Test-Path -Path $Path) { Write-host "Your folder: $Path already exists. Starting Data Collection..." -ForegroundColor DarkCyan }
-else {
-    Write-host "Your Logfolder: $Path does not exist. Creating Folder" -ForegroundColor DarkCyan
-    New-Item -ItemType directory -Path $Path -Force | Out-Null
- }
-$FEL=$Global:FormatEnumerationLimit  ##secure current EnumLimit.Script should revert to this value at the end of execution
-$Global:FormatEnumerationLimit=-1
+if (IsAdminAccount){
+    Write-host "`n`n`n`n`n`n`nScript is executed as Administrator. Resuming execution" -ForegroundColor Green
 
-$TraceDir = $Path +"\temporary"
+    if ([string]::IsNullOrEmpty($Path)) {
+        $RunProp = RunDialog
+        $Path = $RunProp.Path.ToString()
+        $TraceEnabled = $RunProp.TraceEnabled
+        $NetTraceEnabled = $RunProp.NetTraceEnabled
+        $ConfigOnly = $RunProp.ConfigOnly
+        $PerfCounter = $RunProp.PerfCounter
+        $LdapTraceEnabled= $RunProp.LdapTraceEnabled
+        $WAPTraceEnabled= $RunProp.WAPTraceEnabled
+    }
+    elseif (![string]::IsNullOrEmpty($Path)) {
+        if($Tracing.IsPresent -eq $false){ $TraceEnabled=$false;$NetTraceEnabled=$false;$PerfCounter=$false;$LdapTraceEnabled=$false;$ConfigOnly=$true;$WAPTraceEnabled=$false }
+        else {
+            $TraceEnabled=$true;
+            $ConfigOnly=$false;
+            $LdapTraceEnabled=$false
+            $WAPTraceEnabled=$false
+            $PerfCounter=$false
+            if($NetworkTracing.IsPresent -eq $true){ $NetTraceEnabled=$true } else { $NetTraceEnabled=$false }
+            if($PerfTracing.IsPresent -eq $true) { $PerfCounter=$true } 
+            if(($LDAPTracing.IsPresent -eq $true) -and (!$IsProxy)) {  $LdapTraceEnabled=$true }  
+            if(($WAPTracing.IsPresent -eq $true) -and ($IsProxy))  { $WAPTraceEnabled=$true } 
+        }
+    }
+
+    if(Test-Path -Path $Path) { Write-host "Destinationfolder: '$($Path)' already exists. Starting Data Collection..." -ForegroundColor DarkCyan }
+    else {
+        Write-host "Destinationfolder: '$($Path)' does not exist. Creating Folder" -ForegroundColor DarkCyan
+        New-Item -ItemType directory -Path $Path -Force | Out-Null
+    }
+    $FEL=$Global:FormatEnumerationLimit  ##secure current EnumLimit.Script should revert to this value at the end of execution
+    $Global:FormatEnumerationLimit=-1
+
+    $TraceDir = $Path +"\temporary"
 # Save execution output to file
-Write-host "Creating Temporary Folder in $path" -ForegroundColor DarkCyan
-New-Item -ItemType directory -Path $TraceDir -Force | Out-Null
-if($PSVersionTable.PSVersion -le [Version]'4.0') { Start-Transcript -Path "$TraceDir\transscript_output.txt" -Append |out-null} else { Start-Transcript -Path "$TraceDir\transscript_output.txt" -Append -IncludeInvocationHeader |out-null}
-Write-Host "Debug logs will be saved in: " $Path -ForegroundColor DarkCyan
-Write-Host "Options selected:  TracingEnabled:"$TraceEnabled "NetworkTrace:" $NetTraceEnabled " ConfigOnly:" $ConfigOnly " PerfCounter:" $PerfCounter " LDAPTrace:" $LdapTraceEnabled "WAPTrace:" $WAPTraceEnabled -ForegroundColor DarkCyan
-Write-Progress -Activity "Preparation" -Status 'Setup Data Directory' -percentcomplete 5
+    Write-host "Creating Temporary Folder" -ForegroundColor DarkCyan
+    New-Item -ItemType directory -Path $TraceDir -Force | Out-Null
+    if($PSVersionTable.PSVersion -le [Version]'4.0') { Start-Transcript -Path "$TraceDir\transscript_output.txt" -Append |out-null} else { Start-Transcript -Path "$TraceDir\transscript_output.txt" -Append -IncludeInvocationHeader |out-null}
+    Write-Host "Script version             : "  -ForegroundColor DarkCyan -NoNewline; Write-Host "$($scriptversion)" -ForegroundColor Yellow;
+    Write-Host "Debug logs will be saved in: "  -ForegroundColor DarkCyan -NoNewline; Write-Host "$($Path)" -ForegroundColor Yellow;
+    Write-Host "Options selected:  TracingEnabled:"$TraceEnabled "NetworkTrace:" $NetTraceEnabled " ConfigOnly:" $ConfigOnly " PerfCounter:" $PerfCounter " LDAPTrace:" $LdapTraceEnabled "WAPTrace:" $WAPTraceEnabled -ForegroundColor DarkCyan
+    Write-Progress -Activity "Preparation" -Status 'Setup Data Directory' -percentcomplete 5
 
-if ($TraceEnabled) {
-$MessageTitle = "Initialization completed`n"
-$MessageIse = "Data Collection is ready to start.`nPrepare other computers to start collecting data.`n`nWhen ready, Click OK to start the collection...`n"
-$MessageC = "`nData Collection is ready to start.`nPrepare other computers to start collecting data.`n`nWhen ready, press CTRL+Y to start the collection...`n"
-Pause $MessageIse $MessageTitle $MessageC
-}
+    if ($TraceEnabled) {
+        $MessageTitle = "Initialization completed`n"
+        $MessageIse = "Data Collection is ready to start.`nPrepare other computers to start collecting data.`n`nWhen ready, Click OK to start the collection...`n"
+        $MessageC = "`nData Collection is ready to start.`nPrepare other computers to start collecting data.`n`nWhen ready, press CTRL+Y to start the collection...`n"
+        Pause $MessageIse $MessageTitle $MessageC
+    }
 
-Write-Host "Tracing is starting. Current UTC time: $([DateTime]::UtcNow)" -ForegroundColor Cyan
-Write-Host "Timezone: $([System.TimeZoneInfo]::Local.StandardName)" -ForegroundColor DarkCyan
+    Write-Host "Tracing started. Current UTC time: "-ForegroundColor DarkCyan -NoNewline; Write-Host "$([DateTime]::UtcNow)" -ForegroundColor Yellow
+    Write-Host "Timezone: " -ForegroundColor DarkCyan -NoNewline; Write-Host "$([System.TimeZoneInfo]::Local.DisplayName)" -ForegroundColor Yellow
 
-Write-Progress -Activity "Gathering Configuration Data" -Status 'Getting ADFS Configuration' -percentcomplete 7
-    GetADFSConfig
-    GetDRSConfig
-    Clear-DnsClientCache
+    Write-Progress -Activity "Gathering Configuration Data" -Status 'Getting ADFS Configuration' -percentcomplete 7
+        GetADFSConfig
+        GetDRSConfig
+        Clear-DnsClientCache
 
 
-Write-Progress -Activity "Enable Logging" -Status 'Eventlogs' -percentcomplete 15
-$starttime = (get-date)
+    Write-Progress -Activity "Enable Logging" -Status 'Eventlogs' -percentcomplete 15
+    $starttime = (get-date)
 
-Write-host "Configuring Event Logging" -ForegroundColor DarkCyan
-if ($IsProxy) 	{ EnableDebugEvents $WAPDebugEvents  }
-else 			{ EnableDebugEvents $ADFSDebugEvents }
+    Write-host "Configuring Event Logging" -ForegroundColor DarkCyan
+    if ($IsProxy) 	{ EnableDebugEvents $WAPDebugEvents  }
+    else 			{ EnableDebugEvents $ADFSDebugEvents }
 
-Write-Progress -Activity "Enable Logging" -Status 'Netlogon Debug Logging' -percentcomplete 30
-EnableNetlogonDebug
+    Write-Progress -Activity "Enable Logging" -Status 'Netlogon Debug Logging' -percentcomplete 30
+    EnableNetlogonDebug
 
-Write-Progress -Activity "Enable Logging" -Status 'Additional ETL Logging' -percentcomplete 40
-LogManStart
-EnableNetworkTrace
-EnablePerfCounter
-EnableLDAPTrace
-EnableWAPTrace
+    Write-Progress -Activity "Enable Logging" -Status 'Additional ETL Logging' -percentcomplete 40
+        LogManStart
+        EnableNetworkTrace
+        EnablePerfCounter
+        EnableLDAPTrace
+        EnableWAPTrace
 
-if($TraceEnabled) {
-Write-Progress -Activity "Ready for Repro" -Status 'Waiting for Repro' -percentcomplete 50
-$MessageTitle = "Data Collection Running"
-$MessageIse = "Data Collection is currently running`nProceed  reproducing the problem now or`n`nPress OK to stop the collection...`n"
-$MessageC = "Data Collection is currently running`nProceed  reproducing the problem now or `n`nPress CTRL+Y to stop the collection...`n"
-Pause $MessageIse $MessageTitle $MessageC
-}
+    if($TraceEnabled) {
+        Write-Progress -Activity "Ready for Repro" -Status 'Waiting for Repro' -percentcomplete 50
+        $MessageTitle = "Data Collection Running"
+        $MessageIse = "Data Collection is currently running`nProceed  reproducing the problem now or`n`nPress OK to stop the collection...`n"
+        $MessageC = "Data Collection is currently running`nProceed  reproducing the problem now or `n`nPress CTRL+Y to stop the collection...`n"
+        Pause $MessageIse $MessageTitle $MessageC
+    }
 
-Write-Progress -Activity "Collecting" -Status 'Stop Event logging' -percentcomplete 55
-if ($IsProxy) 	{ DisableDebugEvents $WAPDebugEvents }
-else 			{ DisableDebugEvents $ADFSDebugEvents }
+    Write-Progress -Activity "Collecting" -Status 'Stop Event logging' -percentcomplete 55
+    if ($IsProxy) 	{ DisableDebugEvents $WAPDebugEvents }
+    else 			{ DisableDebugEvents $ADFSDebugEvents }
 
-Write-Progress -Activity "Collecting" -Status 'Stop additional logs' -percentcomplete 65
-    LogManStop
-    DisableNetworkTrace
-    DisablePerfCounter
-    DisableNetlogonDebug
-    DisableLDAPTrace
-    DisableWAPTrace
+    Write-Progress -Activity "Collecting" -Status 'Stop additional logs' -percentcomplete 65
+        LogManStop
+        DisableNetworkTrace
+        DisablePerfCounter
+        DisableNetlogonDebug
+        DisableLDAPTrace
+        DisableWAPTrace
 
-Write-Progress -Activity "Collecting" -Status 'Getting otherlogs' -percentcomplete 70
-GatherTheRest
+    Write-Progress -Activity "Collecting" -Status 'Getting otherlogs' -percentcomplete 70
+        GatherTheRest
 
-Write-Host "Tracing has completed. Current UTC time: $([DateTime]::UtcNow)" -ForegroundColor Cyan
-Write-Progress -Activity "Collecting" -Status 'Exporting Eventlogs' -percentcomplete 85
-[int]$endtimeinmsec= (New-TimeSpan -start $starttime -end (get-date).AddMinutes(5)).TotalMilliseconds
+    Write-Host "Tracing ended. Current UTC time: " -ForegroundColor DarkCyan -NoNewline; Write-host "$([DateTime]::UtcNow)" -ForegroundColor Yellow
+    Write-Progress -Activity "Collecting" -Status 'Exporting Eventlogs' -percentcomplete 85
+    [int]$endtimeinmsec= (New-TimeSpan -start $starttime -end (get-date).AddMinutes(5)).TotalMilliseconds
 
-if ($IsProxy) 	{ ExportEventLogs $WAPExportEvents $endtimeinmsec }
-else 			{ ExportEventLogs $ADFSExportEvents $endtimeinmsec }
-$Global:FormatEnumerationLimit=$FEL
-Write-Progress -Activity "Saving" -Status 'Compressing Files - This may take some moments to complete' -percentcomplete 95
-Write-host "Almost done. We are compressing all Files. Please wait" -ForegroundColor Green
-EndOfCollection
+    if ($IsProxy) 	{ ExportEventLogs $WAPExportEvents $endtimeinmsec }
+    else 			{ ExportEventLogs $ADFSExportEvents $endtimeinmsec }
+    $Global:FormatEnumerationLimit=$FEL
+    Write-Progress -Activity "Saving" -Status 'Compressing Files - This may take some moments to complete' -percentcomplete 95
+    Write-host "Almost done. We are compressing all Files. Please wait" -ForegroundColor Green
+        EndOfCollection
 
-}
+    }
 else {
-Write-Host "You do not have Administrator rights!`nPlease re-run this script as an Administrator!" -ForegroundColor Red
-Break
+    Write-Host "You do not have Administrator rights!`nPlease re-run this script as an Administrator!" -ForegroundColor Red
+    Break
 }
 #endregion
