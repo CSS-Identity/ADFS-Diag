@@ -618,7 +618,7 @@ function Show-FolderBrowserDialog {
                 $ev.Handled = $true
             }
         })
-        $script:fbRenameTB.Add_LostFocus({ & $script:fbCommitRename })
+        $script:fbRenameTB.Add_LostFocus({ if ($script:fbCommitRename) { & $script:fbCommitRename } })
     })
 
     # --- OK / Cancel ---
@@ -1347,6 +1347,7 @@ function Set-AdvancedGroupHeader {
         [void]$sp.Children.Add($tb)
         $icon = New-Object System.Windows.Controls.TextBlock
         $icon.Text = " $([char]0x26A0)"
+        $icon.FontFamily = [System.Windows.Media.FontFamily]::new('Segoe UI Symbol')
         $icon.Foreground = [System.Windows.Media.Brushes]::DarkOrange
         $icon.FontSize = 14
         $icon.VerticalAlignment = 'Center'
