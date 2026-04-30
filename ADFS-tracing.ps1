@@ -48,7 +48,6 @@ Add-Type -AssemblyName WindowsBase
 #region Parameters
 [Version]$WinVer = [System.Environment]::OSVersion.Version
 $scriptversion = "v26.02"
-$IsProxy = ((Get-WindowsFeature -name ADFS-Proxy).Installed -or (Get-WindowsFeature -name Web-Application-Proxy).Installed)
 
 # Event logs
 $ADFSDebugEvents = "Microsoft-Windows-CAPI2/Operational","AD FS Tracing/Debug","Device Registration Service Tracing/Debug"
@@ -1054,9 +1053,9 @@ $eulaParts = @(
 #endregion EULA
 
 Function RunDialog {
-
-$advancedHeader = if (!$IsProxy) { "Advanced Options (can cause service restarts)" } else { "Advanced Options" }
-$advancedLabel  = if (!$IsProxy) { "LDAP Traces" } else { "WAP Traces" }
+$advancedHeader = "Advanced Options"
+$AdvancedWarning = if (!$isproxy) { "Can cause service restarts" } else { $null }
+$advancedLabel  = if (!$isProxy) { "LDAP Traces" } else { "WAP Traces" }
 
 [xml]$xaml = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -1336,8 +1335,32 @@ $SelFolder         = $Window.FindName("SelFolder")
 $Okbtn             = $Window.FindName("Okbtn")
 $cnlbtn            = $Window.FindName("cnlbtn")
 
+# Helper: build GroupBox header with optional warning icon + tooltip
+function Set-AdvancedGroupHeader {
+    param([string]$HeaderText, [string]$WarningText)
+    if ($WarningText) {
+        $sp = New-Object System.Windows.Controls.StackPanel
+        $sp.Orientation = 'Horizontal'
+        $tb = New-Object System.Windows.Controls.TextBlock
+        $tb.Text = $HeaderText
+        $tb.VerticalAlignment = 'Center'
+        [void]$sp.Children.Add($tb)
+        $icon = New-Object System.Windows.Controls.TextBlock
+        $icon.Text = " $([char]0x26A0)"
+        $icon.Foreground = [System.Windows.Media.Brushes]::DarkOrange
+        $icon.FontSize = 14
+        $icon.VerticalAlignment = 'Center'
+        $icon.Cursor = [System.Windows.Input.Cursors]::Help
+        $icon.ToolTip = $WarningText
+        [void]$sp.Children.Add($icon)
+        $AdvancedGroup.Header = $sp
+    } else {
+        $AdvancedGroup.Header = $HeaderText
+    }
+}
+
 # Set dynamic header and label for the advanced options
-$AdvancedGroup.Header  = $advancedHeader
+Set-AdvancedGroupHeader -HeaderText $advancedHeader -WarningText $advancedWarning
 $advancedCheck.Content = $advancedLabel
 
 # Build the description with inline formatting (Bold support via Runs)
@@ -1436,8 +1459,8 @@ if ($Window.Tag -eq "OK") {
         NetTraceEnabled  = $NetTrace.IsChecked
         ConfigOnly       = $cfgonly.IsChecked
         PerfCounter      = $perfc.IsChecked
-        LdapTraceEnabled = if (!$IsProxy) { $advancedCheck.IsChecked } else { $false }
-        WAPTraceEnabled  = if ($IsProxy)  { $advancedCheck.IsChecked } else { $false }
+        LdapTraceEnabled = if (!$isProxy) { $advancedCheck.IsChecked } else { $false }
+        WAPTraceEnabled  = if ($isProxy)  { $advancedCheck.IsChecked } else { $false }
     }
 }
 else {
@@ -1462,6 +1485,18 @@ Function Pause { param([String]$Message,[String]$MessageTitle,[String]$MessageC)
 #region Functions
 Function IsAdminAccount {
     return ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+}
+
+Function IsServerOS {
+    $regkey = "HKLM:SYSTEM\CurrentControlSet\Control\ProductOptions"
+    $name = "ProductType"
+    $regkeyvalue = Get-ItemProperty -Path $regkey -Name $name -ErrorAction Ignore
+    #return value can be "WinNT" for client OS, "ServerNT" for server OS and "LanmanNT" for domain controllers. We consider both ServerNT and LanmanNT as Server OS
+    return $regkeyvalue.ProductType -ne 'WinNT'
+}
+
+function Test-IsWAPInstalled {
+    ((Get-WindowsFeature -name ADFS-Proxy).Installed -or (Get-WindowsFeature -name Web-Application-Proxy).Installed)
 }
 
 function LDAPQuery {
@@ -2167,7 +2202,7 @@ Function GatherTheRest {
     Get-CertificatesByStore NTAuth| out-file  $env:COMPUTERNAME-Certificates-NTAuth.txt
     Get-CertificatesByStore ADFSTrustedDevices| out-file  $env:COMPUTERNAME-Certificates-ADFSTrustedDevices.txt
     
-    if(!$IsProxy) {
+    if(!$isProxy) {
         Get-Adfssslcertificate|foreach-object {if($_.CtlStoreName -eq "ClientAuthIssuer" ) {Get-CertificatesByStore ClientAuthIssuer| out-file $env:COMPUTERNAME-Certificates-CliAuthIssuer.txt }}
     
     if ( (Test-IsWID).IsWID) {
@@ -2260,7 +2295,7 @@ Function EnablePerfCounter {
                     
         Write-host "Enabling PerfCounter" -ForegroundColor DarkCyan
         
-        if ($IsProxy) { $Scenario='ADFSProxy' } else {$Scenario='ADFSBackend' }
+        if ($isProxy) { $Scenario='ADFSProxy' } else {$Scenario='ADFSBackend' }
 
             Push-Location $TraceDir
             cmd /c $(Enable-ADFSPerfcounters $Scenario Create) |Out-Null
@@ -2275,7 +2310,7 @@ Function DisablePerfCounter {
         
         Write-Host "Stopping Performance Monitoring" -ForegroundColor DarkCyan
         
-        if ($IsProxy) { $Scenario='ADFSProxy' } else {$Scenario='ADFSBackend' }
+        if ($isProxy) { $Scenario='ADFSProxy' } else {$Scenario='ADFSBackend' }
         Push-Location $TraceDir
         cmd /c $(Enable-ADFSPerfcounters $Scenario Disable) |Out-Null
         cmd /c $(Enable-ADFSPerfcounters $Scenario Delete) |Out-Null
@@ -2306,7 +2341,7 @@ Function DisableNetworkTrace {
 }
 
 Function EnableLDAPTrace {
-    if(!$IsProxy) {
+    if(!$isProxy) {
         if ($TraceEnabled -and $LdapTraceEnabled) {
         Write-host "Starting LDAP Trace" -ForegroundColor DarkCyan
         #enable per ldap tracing for: powershell/ise; wsmprovhost and the service itself
@@ -2325,7 +2360,7 @@ Function EnableLDAPTrace {
 }
 
 Function DisableLDAPTrace {
-    if(!$IsProxy) {
+    if(!$isProxy) {
         if($TraceEnabled -and $LdapTraceEnabled) {
             Write-Host "Stopping LDAP Tracing" -ForegroundColor DarkCyan
             Push-Location $TraceDir
@@ -2344,7 +2379,7 @@ Function DisableLDAPTrace {
 }
 
 Function EnableWAPTrace {
-    if($IsProxy) {
+    if($isProxy) {
         if ($TraceEnabled -and $WAPTraceEnabled) {
             Write-host "Starting WAP Tracing" -ForegroundColor DarkCyan
             Push-Location $TraceDir
@@ -2359,7 +2394,7 @@ Function EnableWAPTrace {
 }
 
 Function DisableWAPTrace {
-    if($IsProxy) {
+    if($isProxy) {
         if($TraceEnabled -and $WAPTraceEnabled) {
             Write-Host "Stopping WAP Tracing" -ForegroundColor DarkCyan
             Push-Location $TraceDir
@@ -2491,7 +2526,7 @@ function Get-ServiceAccountDetails {
     $gsad = New-Object -TypeName PSObject
 
     #only execute if we are not on proxy/wap
-    if (!$IsProxy) {
+    if (!$isProxy) {
         #get currently config service account if this fails
         try {
             $svc = new-object System.ServiceProcess.ServiceController('adfssrv')
@@ -2706,7 +2741,7 @@ function Get-ServiceAccountDetails {
 Function GetADFSConfig {
     
     Push-Location $TraceDir
-    if ($IsProxy) { # ADFS proxy 2012
+    if ($isProxy) { # ADFS proxy 2012
 	    if ($WinVer -eq [Version]"6.2.9200" ) {
 		    Get-AdfsProxyProperties | format-list * | Out-file "Get-AdfsProxyProperties.txt"
 	    }
@@ -2823,7 +2858,7 @@ Function EndOfCollection {
 }
 
 Function GetDRSConfig {
-    if ((-Not $IsProxy) -And ($WinVer -gt [Version]"6.2.9200"))	{
+    if ((-Not $isProxy) -And ($WinVer -gt [Version]"6.2.9200"))	{
 		Push-Location $TraceDir
 		Get-AdfsDeviceRegistrationUpnSuffix | format-list * | Out-file "Get-AdfsDeviceRegistrationUpnSuffix.txt"
 		Try { $drs= Get-AdfsDeviceRegistration; $drs| Out-file "Get-AdfsDeviceRegistration.txt" }  Catch { $_.Exception.Message | Out-file "Get-AdfsDeviceRegistration.txt" }
@@ -3004,22 +3039,20 @@ return $htmlTemplate
 # EULA check - verify acceptance before proceeding
 if ($AcceptEula) {
     Set-EULAAccepted -Accepted $true
-    Write-Host "EULA accepted via -AcceptEula parameter" -ForegroundColor Green
 }
 elseif (!(Test-EULAAccepted)) {
     $eulaResult = Show-EULADialog
     if ($eulaResult -eq "Accept") {
         Set-EULAAccepted -Accepted $true
-        Write-Host "EULA accepted" -ForegroundColor Green
     } else {
         Write-Host "EULA declined. Exiting." -ForegroundColor Red
         exit
     }
 }
 
-if (IsAdminAccount){
-    Write-host "`n`n`n`n`n`n`nScript is executed as Administrator. Resuming execution" -ForegroundColor Green
-
+if ((IsAdminAccount) -AND (IsServerOS)){
+    Write-host "`n`n`n`n`n`n`nEULA accepted. Resuming execution" -ForegroundColor Green
+    $isProxy = Test-IsWAPInstalled
     if ([string]::IsNullOrEmpty($Path)) {
         $RunProp = RunDialog
         $Path = $RunProp.Path.ToString()
@@ -3040,8 +3073,8 @@ if (IsAdminAccount){
             $PerfCounter=$false
             if($NetworkTracing.IsPresent -eq $true){ $NetTraceEnabled=$true } else { $NetTraceEnabled=$false }
             if($PerfTracing.IsPresent -eq $true) { $PerfCounter=$true } 
-            if(($LDAPTracing.IsPresent -eq $true) -and (!$IsProxy)) {  $LdapTraceEnabled=$true }  
-            if(($WAPTracing.IsPresent -eq $true) -and ($IsProxy))  { $WAPTraceEnabled=$true } 
+            if(($LDAPTracing.IsPresent -eq $true) -and (!$isProxy)) {  $LdapTraceEnabled=$true }  
+            if(($WAPTracing.IsPresent -eq $true) -and ($isProxy))  { $WAPTraceEnabled=$true } 
         }
     }
 
@@ -3083,7 +3116,7 @@ if (IsAdminAccount){
     $starttime = (get-date)
 
     Write-host "Configuring Event Logging" -ForegroundColor DarkCyan
-    if ($IsProxy) 	{ EnableDebugEvents $WAPDebugEvents  }
+    if ($isProxy) 	{ EnableDebugEvents $WAPDebugEvents  }
     else 			{ EnableDebugEvents $ADFSDebugEvents }
 
     Write-Progress -Activity "Enable Logging" -Status 'Netlogon Debug Logging' -percentcomplete 30
@@ -3105,7 +3138,7 @@ if (IsAdminAccount){
     }
 
     Write-Progress -Activity "Collecting" -Status 'Stop Event logging' -percentcomplete 55
-    if ($IsProxy) 	{ DisableDebugEvents $WAPDebugEvents }
+    if ($isProxy) 	{ DisableDebugEvents $WAPDebugEvents }
     else 			{ DisableDebugEvents $ADFSDebugEvents }
 
     Write-Progress -Activity "Collecting" -Status 'Stop additional logs' -percentcomplete 65
@@ -3123,7 +3156,7 @@ if (IsAdminAccount){
     Write-Progress -Activity "Collecting" -Status 'Exporting Eventlogs' -percentcomplete 85
     [int]$endtimeinmsec= (New-TimeSpan -start $starttime -end (get-date).AddMinutes(5)).TotalMilliseconds
 
-    if ($IsProxy) 	{ ExportEventLogs $WAPExportEvents $endtimeinmsec }
+    if ($isProxy) 	{ ExportEventLogs $WAPExportEvents $endtimeinmsec }
     else 			{ ExportEventLogs $ADFSExportEvents $endtimeinmsec }
     $Global:FormatEnumerationLimit=$FEL
     Write-Progress -Activity "Saving" -Status 'Compressing Files - This may take some moments to complete' -percentcomplete 95
@@ -3132,7 +3165,8 @@ if (IsAdminAccount){
 
     }
 else {
-    Write-Host "You do not have Administrator rights!`nPlease re-run this script as an Administrator!" -ForegroundColor Red
+    if (-not (IsAdminAccount)) { Write-Host "You do not have Administrator rights! Please re-run this script as an Administrator!" -ForegroundColor Red }
+    if (-not (IsServerOS))     { Write-Host "This script must be run on a Windows Server OS!" -ForegroundColor Red }
     Break
 }
 #endregion
