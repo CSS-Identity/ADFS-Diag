@@ -659,6 +659,18 @@ function Build-TextBlockPanel {
     # --- Body parts ---
     for ($i = $startIndex; $i -lt $Parts.Count; $i++) {
         $part = $Parts[$i]
+
+        # Horizontal rule: text is exactly three (or more) underscores
+        if ($part.Text -match '^\s*_{3,}\s*$') {
+            $hr = New-Object System.Windows.Controls.Border
+            $hr.Height = 1
+            $hr.Background = New-Object System.Windows.Media.SolidColorBrush(
+                [System.Windows.Media.Color]::FromRgb(0xE1, 0xE1, 0xE1))
+            $hr.Margin = [System.Windows.Thickness]::new(0, 10, 0, 6)
+            [void]$Panel.Children.Add($hr)
+            continue
+        }
+
         $numMatch = [regex]::Match($part.Text, '^(\d+\.)\s+')
 
         if ($part.Indent -and $numMatch.Success) {
@@ -1194,6 +1206,7 @@ $descriptionParts = @(
     @{ Text = "This script collects diagnostic data from your ADFS environment, including configuration details and related Windows settings."; Bold = $false; Indent = $false }
     @{ Text = "The collected data may contain Personally Identifiable Information (PII) and/or sensitive data, such as (but not limited to) IP addresses; PC names; and user names."; Bold = $false; Indent = $false }
     @{ Text = "When sharing data with Microsoft CSS, a **Secure File Transfer** tool must be used - Discuss this with your support professional and also any concerns you may have."; Bold = $false; Indent = $false }
+    @{ Text = "___"; Bold = $false; Indent = $false}
     @{ Text = "The script supports two scenario:  **Configuration only** and **Runtime tracing**."; Bold = $false; Indent = $false }
     @{ Text = "**Configuration only** collects static configuration information and relevant event logs and is primarily used for port-mortem scenarios and when validating existing configurations."; Bold = $false; Indent = $true }
     @{ Text = "**Runtime tracing** allows for troubleshooting problems that can be actively reproduced. The data collection in Runtime tracing is furthermore extensible through the following options:
@@ -1309,7 +1322,7 @@ Function Pause { param([String]$Message,[String]$MessageTitle,[String]$MessageC)
 ##########################################################################
 #region Functions
 Function IsAdminAccount {
-    return ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")
+    return ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 }
 
 function LDAPQuery {
@@ -1642,9 +1655,52 @@ function get-servicesettingsfromdb {
     return $SSD
 }
 
+function Test-HTTP2Disablement {
+   
+    If ($WinVer -ge [Version]"10.0.17763") {
+
+    $regkey = "HKLM:SOFTWARE\Microsoft\Windows\CurrentVersion\Internet Settings\WinHttp\"
+    $name = "EnableDefaultHTTP2"
+    $regkeyvalue = Get-ItemProperty -Path $regkey -Name $name -ErrorAction Ignore
+
+    switch($regkeyvalue.EnableDefaultHTTP2)
+     {
+      0 {
+          $returnmsg = @"
+Information:
+The registry key '$name' DWORD in '$regkey' is configured with the value '0'.
+This is a recommended configuration.
+"@
+        }
+      1 {
+          $returnmsg = @"
+Error:
+The registry key '$name' DWORD in '$regkey' is configured with the value '1'.
+Please change the value to '0' and reboot the computer.
+If HTTP2 is not properly disabled, unexpected issues may occur when accessing published webapplications.
+"@
+        }
+      Default {
+          $returnmsg = @"
+Error:
+The registry key '$name' in '$regkey' does not exist or is incorrectly configured.
+Please add it with a value of '0' and reboot the computer.
+If HTTP2 is not properly disabled, unexpected issues may occur when accessing published webapplications.
+"@
+        }
+     }
+   }
+  else {
+    $returnmsg =  @"
+Information:
+The operating system version is lower than Windows Server 2019 (10.0.17763). The registry key 'EnableDefaultHTTP2' is not applicable and does not need to be configured.
+"@
+   }
+   return ($returnmsg)
+}
 Function Test-WiaSupportedUseragents {
     # Unsupported user agents may cause issues with WIA authentication on various platforms if internal. In particular mobile apps using webview controls or devices that dont support wia per se
-    # usually this is due to using too generic user agents. Update the list as needed. We will extend this list as needed
+    # usually this is due to using too generic user agents. We will extend this list as needed
     $unsupported=@("Mozilla/5.0","Mozilla/4.0","Chrome","FireFox","Safari","Opera","Vivaldi","Brave","OPR","Edg/*","Edge/*","Edg/","Edge/","Edge/12","Webkit/","=~Windows\s*NT.*Edge")
     $agents = (get-adfsproperties).WiasupportedUseragents
     $commonItems=@()
@@ -2521,6 +2577,7 @@ Function GetADFSConfig {
 		    Get-WebApplicationProxyConfiguration | format-list * | Out-file "Get-WebApplicationProxyConfiguration.txt"
 		    Get-WebApplicationProxyHealth | format-list * | Out-file "Get-WebApplicationProxyHealth.txt"
 		    Get-WebApplicationProxySslCertificate | format-list * | Out-file "Get-WebApplicationProxySslCertificate.txt"
+            Test-HTTP2Disablement | Out-File "Get-WebApplicationProxyConfiguration.txt" -Append
             copy-item -path "$env:windir\ADFS\Config\Microsoft.IdentityServer.ProxyService.exe.config" -Destination $TraceDir
 		}
     }
@@ -2903,8 +2960,8 @@ if (IsAdminAccount){
     if($TraceEnabled) {
         Write-Progress -Activity "Ready for Repro" -Status 'Waiting for Repro' -percentcomplete 50
         $MessageTitle = "Data Collection Running"
-        $MessageIse = "Data Collection is currently running`nProceed  reproducing the problem now or`n`nPress OK to stop the collection...`n"
-        $MessageC = "Data Collection is currently running`nProceed  reproducing the problem now or `n`nPress CTRL+Y to stop the collection...`n"
+        $MessageIse = "Data Collection is currently running`nProceed reproducing the problem now or`n`nPress OK to stop the collection...`n"
+        $MessageC = "Data Collection is currently running`nProceed reproducing the problem now or `n`nPress CTRL+Y to stop the collection...`n"
         Pause $MessageIse $MessageTitle $MessageC
     }
 
