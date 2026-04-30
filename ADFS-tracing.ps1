@@ -335,12 +335,19 @@ function Show-FolderBrowserDialog {
         WPF TreeView-based folder browser using System.IO.
         Works on Server Core where FolderBrowserDialog fails.
     #>
-    param([string]$InitialPath)
+    param(
+        [string]$InitialPath,
+        [string]$DialogTitle    = 'Select Folder',
+        [string]$Prompt         = 'Select a destination folder:',
+        [string]$OkLabel        = 'OK',
+        [string]$CancelLabel    = 'Cancel',
+        [string]$NewFolderLabel = 'New Folder'
+    )
 
     $fbXaml = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Select Folder" Width="440" Height="400"
+        Title="_TITLE_" Width="440" Height="400"
         WindowStartupLocation="CenterOwner" ShowInTaskbar="False"
         ResizeMode="CanResizeWithGrip" Background="#F3F3F3"
         FontFamily="Segoe UI" FontSize="13">
@@ -413,32 +420,47 @@ function Show-FolderBrowserDialog {
             <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
-        <TextBlock Grid.Row="0" Text="Select a destination folder:" FontWeight="SemiBold"
+        <TextBlock x:Name="FBPrompt" Grid.Row="0" Text="_PROMPT_" FontWeight="SemiBold"
                    Foreground="#1A1A1A" Margin="0,0,0,8"/>
         <Border Grid.Row="1" Background="White" CornerRadius="4"
                 BorderBrush="#E1E1E1" BorderThickness="1" Margin="0,0,0,8">
             <TreeView x:Name="FolderTree" Background="Transparent"
                       BorderThickness="0" Padding="4"/>
         </Border>
-        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right">
-            <Button x:Name="OkBtn" Content="OK" Width="90" Height="30" Margin="0,0,8,0"
-                    IsEnabled="False" Style="{StaticResource FBPrimaryButton}"/>
-            <Button x:Name="CancelBtn" Content="Cancel" Width="90" Height="30" FontSize="13"
-                    Background="White" BorderBrush="#E1E1E1"/>
-        </StackPanel>
+        <DockPanel Grid.Row="2">
+            <Button x:Name="NewFolderBtn" Content="_NEWFOLDER_" Height="30" FontSize="13"
+                    Padding="12,5" Background="White" BorderBrush="#E1E1E1" IsEnabled="False"
+                    DockPanel.Dock="Left"/>
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button x:Name="OkBtn" Content="_OK_" Width="90" Height="30" Margin="0,0,8,0"
+                        IsEnabled="False" Style="{StaticResource FBPrimaryButton}"/>
+                <Button x:Name="CancelBtn" Content="_CANCEL_" Width="90" Height="30" FontSize="13"
+                        Background="White" BorderBrush="#E1E1E1"/>
+            </StackPanel>
+        </DockPanel>
     </Grid>
 </Window>
 "@
+
+    # Replace placeholders with localised text (avoids XAML-escaping issues)
+    $fbXaml = $fbXaml -replace '_TITLE_',     [System.Security.SecurityElement]::Escape($DialogTitle)
+    $fbXaml = $fbXaml -replace '_PROMPT_',    [System.Security.SecurityElement]::Escape($Prompt)
+    $fbXaml = $fbXaml -replace '_OK_',        [System.Security.SecurityElement]::Escape($OkLabel)
+    $fbXaml = $fbXaml -replace '_CANCEL_',    [System.Security.SecurityElement]::Escape($CancelLabel)
+    $fbXaml = $fbXaml -replace '_NEWFOLDER_', [System.Security.SecurityElement]::Escape($NewFolderLabel)
 
     $reader = [System.Xml.XmlReader]::Create([System.IO.StringReader]::new($fbXaml))
     $fbWindow = [System.Windows.Markup.XamlReader]::Load($reader)
     $reader.Close()
 
-    $tree       = $fbWindow.FindName("FolderTree")
-    $okBtn      = $fbWindow.FindName("OkBtn")
-    $cancelBtn  = $fbWindow.FindName("CancelBtn")
+    $tree         = $fbWindow.FindName("FolderTree")
+    $okBtn        = $fbWindow.FindName("OkBtn")
+    $cancelBtn    = $fbWindow.FindName("CancelBtn")
+    $newFolderBtn = $fbWindow.FindName("NewFolderBtn")
 
-    $script:fbResult = $null
+    $script:fbResult       = $null
+    $script:fbCommitRename = $null
+    $script:fbRenameTB     = $null
 
     # --- Helper: create a TreeViewItem with a hidden dummy child for the expand arrow ---
     function New-FolderNode([string]$folderPath, [string]$displayName) {
@@ -456,8 +478,8 @@ function Show-FolderBrowserDialog {
     foreach ($drv in [System.IO.DriveInfo]::GetDrives()) {
         if ($drv.IsReady) {
             $label = if ($drv.VolumeLabel) {
-                "$($drv.Name.TrimEnd('\\'))  [$($drv.VolumeLabel)]"
-            } else { $drv.Name.TrimEnd('\\') }
+                "$($drv.Name.TrimEnd('\'))  [$($drv.VolumeLabel)]"
+            } else { $drv.Name.TrimEnd('\') }
             [void]$tree.Items.Add((New-FolderNode $drv.Name $label))
         }
     }
@@ -490,16 +512,120 @@ function Show-FolderBrowserDialog {
         }
     )
 
+    # --- Update selection tracking ---
     $tree.Add_SelectedItemChanged({
         param($sender, $e)
+        # Commit any in-progress rename before switching selection
+        if ($script:fbCommitRename) { & $script:fbCommitRename }
         $sel = $e.NewValue
         if ($sel -is [System.Windows.Controls.TreeViewItem] -and $sel.Tag) {
             $script:fbSelectedPath = $sel.Tag
             $okBtn.IsEnabled       = $true
+            $newFolderBtn.IsEnabled = $true
         }
     })
 
+    # --- New Folder ---
+    $newFolderBtn.Add_Click({
+        $parentItem = $tree.SelectedItem
+        if (-not $parentItem -or -not $parentItem.Tag) { return }
+        $parentPath = $parentItem.Tag
+
+        # Determine a unique default name
+        $baseName = 'New Folder'
+        $newName  = $baseName
+        $counter  = 2
+        while (Test-Path (Join-Path $parentPath $newName)) {
+            $newName = "$baseName ($counter)"
+            $counter++
+        }
+        $newPath = Join-Path $parentPath $newName
+
+        try {
+            [void](New-Item -Path $newPath -ItemType Directory -ErrorAction Stop)
+        } catch {
+            [System.Windows.MessageBox]::Show(
+                $_.Exception.Message, 'Error',
+                [System.Windows.MessageBoxButton]::OK,
+                [System.Windows.MessageBoxImage]::Error) | Out-Null
+            return
+        }
+
+        # Ensure parent node children are loaded (expand it)
+        $parentItem.IsExpanded = $true
+        # Force re-population if the dummy placeholder was already cleared
+        $exists = $false
+        foreach ($child in $parentItem.Items) {
+            if ($child.Tag -eq $newPath) { $exists = $true; break }
+        }
+        if (-not $exists) {
+            $newNode = New-FolderNode $newPath $newName
+            [void]$parentItem.Items.Add($newNode)
+        } else {
+            $newNode = $parentItem.Items | Where-Object { $_.Tag -eq $newPath } | Select-Object -First 1
+        }
+
+        # Select the new folder and put it into rename/edit mode
+        $newNode.IsSelected = $true
+        $newNode.BringIntoView()
+        $script:fbSelectedPath = $newPath
+
+        # Inline rename via a TextBox overlay
+        $script:fbRenameNode       = $newNode
+        $script:fbRenameOrigHeader = $newNode.HeaderTemplate
+        $script:fbRenameParentPath = $parentPath
+        $script:fbRenameOrigName   = $newName
+        $script:fbRenameOrigPath   = $newPath
+
+        $newNode.HeaderTemplate = $null
+        $script:fbRenameTB = New-Object System.Windows.Controls.TextBox
+        $script:fbRenameTB.Text = $newName
+        $script:fbRenameTB.SelectAll()
+        $script:fbRenameTB.MinWidth = 120
+        $newNode.Header = $script:fbRenameTB
+        $script:fbRenameTB.Focus() | Out-Null
+
+        $script:fbCommitRename = {
+            if ($null -eq $script:fbRenameTB) { return }
+            $finalName = $script:fbRenameTB.Text.Trim()
+            if (-not $finalName -or $finalName -match '[\\/:*?"<>|]') {
+                $finalName = $script:fbRenameOrigName
+            }
+            $finalPath = Join-Path $script:fbRenameParentPath $finalName
+            if ($finalPath -ne $script:fbRenameOrigPath -and (Test-Path $script:fbRenameOrigPath)) {
+                try {
+                    Rename-Item -Path $script:fbRenameOrigPath -NewName $finalName -ErrorAction Stop
+                } catch {
+                    $finalName = $script:fbRenameOrigName
+                    $finalPath = $script:fbRenameOrigPath
+                }
+            }
+            $script:fbRenameNode.HeaderTemplate = $script:fbRenameOrigHeader
+            $script:fbRenameNode.Header = $finalName
+            $script:fbRenameNode.Tag    = $finalPath
+            $script:fbSelectedPath      = $finalPath
+            $script:fbRenameTB          = $null   # prevent re-entry
+            $script:fbCommitRename      = $null   # clear so guard checks don't re-invoke
+        }
+
+        $script:fbRenameTB.Add_KeyDown({
+            param($s, $ev)
+            if ($ev.Key -eq [System.Windows.Input.Key]::Return) {
+                & $script:fbCommitRename
+                $ev.Handled = $true
+            } elseif ($ev.Key -eq [System.Windows.Input.Key]::Escape) {
+                $script:fbRenameTB.Text = $script:fbRenameOrigName
+                & $script:fbCommitRename
+                $ev.Handled = $true
+            }
+        })
+        $script:fbRenameTB.Add_LostFocus({ & $script:fbCommitRename })
+    })
+
+    # --- OK / Cancel ---
     $okBtn.Add_Click({
+        # Commit any in-progress rename before closing
+        if ($script:fbCommitRename) { & $script:fbCommitRename }
         $script:fbResult = $script:fbSelectedPath
         $fbWindow.DialogResult = $true
     })
@@ -507,12 +633,25 @@ function Show-FolderBrowserDialog {
         $fbWindow.DialogResult = $false
     })
 
+    # Pre-fill selection if valid
     if ($InitialPath -and (Test-Path $InitialPath -PathType Container)) {
         $script:fbSelectedPath = $InitialPath
         $okBtn.IsEnabled       = $true
     }
 
     $fbWindow.Owner = $Window
+
+    # Match main window font/direction for current language
+    $fbFont = switch ($script:currentLang) {
+        'ZHS' { 'Microsoft YaHei, Segoe UI' }
+        'ZH'  { 'Microsoft JhengHei, Segoe UI' }
+        'JP'  { 'Yu Gothic UI, Meiryo, Segoe UI' }
+        'AR'  { 'Sakkal Majalla, Segoe UI' }
+        default { 'Segoe UI' }
+    }
+    $fbWindow.FontFamily    = [System.Windows.Media.FontFamily]::new($fbFont)
+    $fbWindow.FlowDirection = $Window.FlowDirection
+
     $result = $fbWindow.ShowDialog()
     if ($result) { return $script:fbResult } else { return $null }
 }
