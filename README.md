@@ -29,7 +29,7 @@ Once the tracing has completed, the script will automatically generate a archive
 
 
 Download the zip file via the green "code" button and extract the Zip file content to a location on the servers you want to trace.
-Ensure that you have the Scriptfile and the folder "helpermodules" in the target location prior from executing the script.
+Ensure that you have the Scriptfile in the target location prior from executing the script.
 
 It is recommended to run the script from Powershell Console.
 
