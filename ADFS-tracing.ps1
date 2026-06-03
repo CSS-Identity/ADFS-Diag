@@ -1,4 +1,4 @@
-############################################################################################################
+﻿############################################################################################################
 # ADFS troubleshooting - Data Collection
 # Supported OS versions: Windows Server 2012 to Server 2025
 # Supported role: ADFS on 2012 to 2022, ADFS proxy server (2012) and Web Application Proxy (2012 R2 to 2022)
@@ -47,9 +47,9 @@ Add-Type -AssemblyName WindowsBase
 
 #region Parameters
 [Version]$WinVer = [System.Environment]::OSVersion.Version
-$scriptversion = "v26.02"
+$scriptversion = "v26.06"
 
-# Event logs
+#Event logs
 $ADFSDebugEvents = "Microsoft-Windows-CAPI2/Operational","AD FS Tracing/Debug","Device Registration Service Tracing/Debug"
 $WAPDebugEvents  = "Microsoft-Windows-CAPI2/Operational","AD FS Tracing/Debug","Microsoft-Windows-WebApplicationProxy/Session"
 
@@ -239,7 +239,7 @@ Add-Type -TypeDefinition @"
         return result;
         }
     }
-    
+
     public class ServiceConfigHelper
     {
   
@@ -317,6 +317,336 @@ Add-Type -TypeDefinition @"
 "@
 #endregion
 ##########################################################################
+#region Localization
+function Get-UILocalizedStrings {
+    param([bool]$isproxy)
+    return @{
+    EN = @{
+        WindowTitle      = "ADFS Trace Collector"
+        ScenarioHeader   = "Scenario"
+        ConfigOnly       = "Configuration only"
+        RuntimeTracing   = "Runtime Tracing"
+        OptionsHeader    = "Options"
+        NetTraceLabel    = "Include Network Traces"
+        PerfLabel        = "Include Performance Counter"
+        AdvancedHeader   = "Advanced Options"
+        AdvancedWarning  = if (!$isproxy) { "My cause service restarts" } else { $null }
+        AdvancedLabel    = if (!$isproxy) { "LDAP Traces" } else { "WAP Traces" }
+        DestFolder       = "Destination Folder"
+        BrowseBtn        = "Browse..."
+        OkBtn            = "OK"
+        CancelBtn        = "Cancel"
+        FBTitle          = "Select Folder"
+        FBPrompt         = "Select a destination folder:"
+        FBOk             = "OK"
+        FBCancel         = "Cancel"
+        FBNewFolder      = "New Folder"
+        DescriptionParts = @(
+            @{ Text = "This script collects diagnostic data from your ADFS environment, including configuration details and related Windows settings."; Bold = $false; Indent = $false }
+            @{ Text = "The collected data may contain Personally Identifiable Information (PII) and/or sensitive data, such as (but not limited to) IP addresses; PC names; and user names."; Bold = $false; Indent = $false }
+            @{ Text = "When sharing data with Microsoft Support a **Secure File Transfer** tool must be used - Discuss this with your support professional and also any concerns you may have."; Bold = $false; Indent = $false }
+            @{ Text = "___"; Bold = $false; Indent = $false}
+            @{ Text = "The script supports two scenario:  **Configuration only** and **Runtime tracing**."; Bold = $false; Indent = $false }
+            @{ Text = "**Configuration only** collects static configuration information and relevant event logs and is primarily used for post-mortem scenarios and when validating existing configurations."; Bold = $false; Indent = $true }
+            @{ Text = "**Runtime tracing** allows for troubleshooting problems that can be actively reproduced. The data collection in Runtime tracing is furthermore extensible through the following options:
+`t-***Network Traces*** : *enabled by default* 
+`t-***Performance Counters*** : *disabled by default; only need for performance related issues*
+`t-***LDAP traces*** : *ADFS servers only; disabled by default - should only be enabled if required by Microsoft Support*
+`t-***WAP Traces*** : *WAP servers only; disabled by default - use when troubleshooting app publishing*"; Bold = $false; Indent = $true }
+            @{ Text = "*unless otherwise instructed we recommend to keep the default options"; Bold = $false; Indent = $true }
+            @{ Text = "Type a file path or click Browse to select a destination folder for the collected data. Ensure that the selected location has sufficient free space (expect between **4 GB** and **10 GB**) and that you have write permissions to it."; Bold = $false; Indent = $true }
+            @{ Text = "Once you click **OK**, the script collects the configuration informations and prepares the trace logs. It will pause when preparations are completed awaiting further input. This pause let's you set up tracing on additional farm nodes."; Bold = $false; Indent = $true }
+            @{ Text = "When all systems are setup for tracing press '**CTRL + Y**' to start capturing data. Repeat this step on each node you want to run the traces on."; Bold = $false; Indent = $true }
+            @{ Text = "The script will confirm when tracing is active and you can then reproduce the problem.
+Press '**CTRL + Y**' again to stop the tracing."; Bold = $false; Indent = $true }
+            @{ Text = "At compleption, the temporary folder will be compressed into a single **.zip** file at the specified destination folder."; Bold = $false; Indent = $true }
+            @{ Text = "**Important:**
+`t- try to run the capture during periods of low authentication activity.
+`t- the script is intended for short diagnostic sessions - do not leave it running for extended periods.
+`t- Security Events: limited to the duration of the runtime trace; last 60 minutes when using configuration only
+`t- traces are written to circular buffers inside a temporary folder at the selected path (e.g. C:\tracing\temporary)."; Bold = $false; Indent = $true }
+        )
+    }
+    JP = @{
+        WindowTitle      = "ADFS トレース コレクター"
+        ScenarioHeader   = "情報採取シナリオ"
+        ConfigOnly       = "ADFS 構成のみ"
+        RuntimeTracing   = "ランタイム トレース"
+        OptionsHeader    = "採取オプション"
+        NetTraceLabel    = "ネットワーク トレースを含める"
+        PerfLabel        = "パフォーマンス カウンターを含める"
+        AdvancedHeader   = "詳細オプション"
+        AdvancedWarning  = if (!$isproxy) { "サービスの再起動が発生する場合があります" } else { $null }
+        AdvancedLabel    = if (!$isproxy) { "LDAP トレース" } else { "WAP トレース" }
+        DestFolder       = "保存先フォルダー"
+        BrowseBtn        = "参照..."
+        OkBtn            = "OK"
+        CancelBtn        = "キャンセル"
+        FBTitle          = "フォルダーの選択"
+        FBPrompt         = "保存先フォルダーを選択してください:"
+        FBOk             = "OK"
+        FBCancel         = "キャンセル"
+        FBNewFolder      = "新しいフォルダー"
+        DescriptionParts = @(
+            @{ Text = "このスクリプトは、ADFS 構成の詳細や関連する Windows 設定を含む、ADFS 環境の診断データを収集します。"; Bold = $false; Indent = $false }
+            @{ Text = "収集されたデータには、IP アドレス、PC 名、ユーザー名などの個人を特定できる情報 (PII) や機密データが含まれる場合があります。"; Bold = $false; Indent = $false }
+            @{ Text = "Microsoft Support とデータを共有する場合は、**セキュア ファイル転送**ツールを使用してください。懸念事項についてはサポート担当者にご相談ください。"; Bold = $false; Indent = $false }
+            @{ Text = "___"; Bold = $false; Indent = $false}
+            @{ Text = "このスクリプトは、**ADFS 構成のみ** と **ランタイム トレース** の2つのシナリオをサポートしています。"; Bold = $false; Indent = $false }
+            @{ Text = "**ADFS 構成のみ** は、静的な構成情報と関連するイベント ログを収集し、主に事象再現後の分析や既存の構成の確認に使用されます。"; Bold = $false; Indent = $true }
+            @{ Text = "**ランタイム トレース** は、事象の再現が可能、かつ情報の採取が可能な問題のトラブルシューティングに使用します。以下のオプションで収集データを追加することもできます:
+`t-***ネットワーク トレース*** : *既定で有効*
+`t-***パフォーマンス カウンター*** : *既定で無効; パフォーマンス関連の問題にのみ必要*
+`t-***LDAP トレース*** : *ADFS サーバーのみ; 既定で無効 - 弊社 Microsoft サポートから要求された場合のみ有効にしてください*
+`t-***WAP トレース*** : *WAP サーバーのみ; 既定で無効 - アプリの公開に関するトラブルシューティングに使用*"; Bold = $false; Indent = $true }
+            @{ Text = "*特に指示がない限り、既定のオプションを維持することをお勧めします"; Bold = $false; Indent = $true }
+            @{ Text = "ファイル パスを入力するか、[参照] をクリックして収集データの保存先フォルダーを選択してください。選択した場所に十分な空き容量 (**4 GB** ～ **10 GB**) があり、書き込み権限があることを確認してください。"; Bold = $false; Indent = $true }
+            @{ Text = "**OK** をクリックすると、スクリプトは構成情報を収集し、トレース ログの採取を準備します。採取準備が完了すると一時停止するので、追加のファーム ノードでトレース ログの採取を設定できます。"; Bold = $false; Indent = $true }
+            @{ Text = "すべての AD FS サーバーでトレースの準備ができたら、'**CTRL + Y**' を押してデータのキャプチャを開始します。トレースを実行する各ノードでこの手順を繰り返してください。"; Bold = $false; Indent = $true }
+            @{ Text = "トレースがアクティブであることが確認されたら、問題を再現してください。
+再度 '**CTRL + Y**' を押してトレースを停止します。"; Bold = $false; Indent = $true }
+            @{ Text = "完了すると、一時フォルダーに指定された保存先フォルダーへ単一の **.zip** ファイルとして圧縮、保存されます。"; Bold = $false; Indent = $true }
+            @{ Text = "**重要:**
+`t- ADFS の認証リクエストが少ない時間帯に情報採取を実行してください。
+`t- このスクリプトは短い診断セッション向けです。長時間実行しないでください。
+`t- セキュリティ イベント: ランタイム トレースで取得する期間のイベントに限定; **ADFS 構成のみ**を取得する場合は過去60分間のイベントを取得します。
+`t- トレースは選択したパスの一時フォルダー内に書き込まれます (例: C:\tracing\temporary)。"; Bold = $false; Indent = $true }
+        )
+    }
+    ES = @{
+        WindowTitle      = "ADFS Recopilador de Trazas"
+        ScenarioHeader   = "Escenario"
+        ConfigOnly       = "Solo configuración"
+        RuntimeTracing   = "Diagnóstico en tiempo real"
+        OptionsHeader    = "Opciones"
+        NetTraceLabel    = "Incluir captura de red"
+        PerfLabel        = "Incluir contadores de rendimiento"
+        AdvancedHeader   = "Opciones avanzadas"
+        AdvancedWarning  = if (!$isproxy) { "Pueden provocar reinicios del servicio" } else { $null }
+        AdvancedLabel    = if (!$isproxy) { "Trazas LDAP" } else { "Trazas WAP" }
+        DestFolder       = "Carpeta de destino"
+        BrowseBtn        = "Examinar..."
+        OkBtn            = "Aceptar"
+        CancelBtn        = "Cancelar"
+        FBTitle          = "Seleccionar carpeta"
+        FBPrompt         = "Seleccione una carpeta de destino:"
+        FBOk             = "Aceptar"
+        FBCancel         = "Cancelar"
+        FBNewFolder      = "Nueva carpeta"
+        DescriptionParts = @(
+            @{ Text = "Este script recopila información de diagnóstico del entorno ADFS, incluyendo detalles de configuración y ajustes relacionados de Windows."; Bold = $false; Indent = $false }
+            @{ Text = "Los datos recopilados pueden contener información de identificación personal (PII) y/o datos sensibles, como (pero no limitado a) direcciones IP, nombres de equipos y nombres de usuario."; Bold = $false; Indent = $false }
+            @{ Text = "Al compartir datos con Microsoft Support, se debe utilizar una herramienta de **transferencia segura de archivos**. Consulte este proceso con su profesional de soporte y plantee cualquier inquietud que pueda tener."; Bold = $false; Indent = $false }
+            @{ Text = "___"; Bold = $false; Indent = $false}
+            @{ Text = "El script permite dos escenarios: **solo configuración** y **diagnóstico en tiempo real**."; Bold = $false; Indent = $false }
+            @{ Text = "**Solo configuración** recopila información estática de configuración y registros de eventos relevantes. Se utiliza principalmente para análisis post mortem y para la validación de configuraciones existentes."; Bold = $false; Indent = $true }
+            @{ Text = "**Diagnóstico en tiempo real** permite diagnosticar problemas que pueden reproducirse de forma activa. La recopilación de datos en este modo puede ampliarse mediante las siguientes opciones:
+`t-***Captura de red*** : *habilitadas por defecto*
+`t-***Contadores de rendimiento*** : *deshabilitados por defecto; necesarios solo para problemas de rendimiento*
+`t-***Trazas LDAP*** : *solo en servidores ADFS; deshabilitadas por defecto; habilitar únicamente bajo solicitud de Microsoft Support*
+`t-***Trazas WAP*** : *solo en servidores WAP; deshabilitadas por defecto; utilizar para el diagnóstico de publicación de aplicaciones*"; Bold = $false; Indent = $true }
+            @{ Text = "*Salvo que se indique lo contrario, se recomienda mantener las opciones predeterminadas."; Bold = $false; Indent = $true }
+            @{ Text = "Introduzca una ubicación o haga clic en Examinar para seleccionar una carpeta de destino para los datos recopilados. Asegúrese de que la ubicación seleccionada disponga de espacio libre suficiente (entre **4 GB** y **10 GB**) y de que cuenta con permisos de escritura"; Bold = $false; Indent = $true }
+            @{ Text = "Una vez que haga clic en **Aceptar**, el script recopilará la información de configuración y preparará los registros de trazas. El proceso se pausará al finalizar la preparación, a la espera de nuevas acciones. Esta pausa permite duplicar el proceso de recolección de trazas en otros nodos ADFS/WAP."; Bold = $false; Indent = $true }
+            @{ Text = "Cuando todos los sistemas estén preparados para la captura de trazas, presione '**CTRL + Y**' para iniciar la captura de datos. Repita este paso en cada nodo en el que desee capturar las trazas."; Bold = $false; Indent = $true }
+            @{ Text = "El script confirmará cuando la captura está activa, momento en el cual podrá reproducir el problema.
+Presione '**CTRL + Y**' nuevamente para detener la captura de datos."; Bold = $false; Indent = $true }
+            @{ Text = "Al finalizar, la carpeta temporal se comprimirá en un único archivo **.zip** en la carpeta de destino especificada."; Bold = $false; Indent = $true }
+            @{ Text = "**Importante:**
+`t- Intente ejecutar la captura durante periodos de baja actividad de autenticación.
+`t- El script está diseñado para sesiones de diagnóstico de corta duración; no debe ejecutarse durante periodos prolongados.
+`t- Eventos de seguridad: se limitan a la duración de las trazas en tiempo de ejecución; en modo solo configuración, se incluyen únicamente los últimos 60 minutos.
+`t- Las trazas se escriben en búferes circulares dentro de una carpeta temporal en la ruta seleccionada (por ejemplo, C:\tracing\temporary)."; Bold = $false; Indent = $true }
+        )
+    }
+    FR = @{
+        WindowTitle      = "Collecteur de Traces ADFS"
+        ScenarioHeader   = "Scénario"
+        ConfigOnly       = "Configuration uniquement"
+        RuntimeTracing   = "Traçage en temps réel"
+        OptionsHeader    = "Options"
+        NetTraceLabel    = "Inclure les traces réseau"
+        PerfLabel        = "Inclure les compteurs de performance"
+        AdvancedHeader   = "Options avancées"
+        AdvancedWarning  = if (!$isproxy) { "Peut entraîner des redémarrages de services" } else { $null }
+        AdvancedLabel    = if (!$isproxy) { "Traces LDAP" } else { "Traces WAP" }
+        DestFolder       = "Dossier de destination"
+        BrowseBtn        = "Parcourir..."
+        OkBtn            = "OK"
+        CancelBtn        = "Annuler"
+        FBTitle          = "Sélectionner un dossier"
+        FBPrompt         = "Sélectionnez un dossier de destination :"
+        FBOk             = "OK"
+        FBCancel         = "Annuler"
+        FBNewFolder      = "Nouveau dossier"
+        DescriptionParts = @(
+            @{ Text = "Ce script collecte les données de diagnostic de votre environnement ADFS, y compris les détails de configuration et les paramètres Windows associés."; Bold = $false; Indent = $false }
+            @{ Text = "Les données collectées peuvent contenir des informations personnelles identifiables (PII) et/ou des données sensibles, telles que (sans s'y limiter) les adresses IP, les noms de PC et les noms d'utilisateur."; Bold = $false; Indent = $false }
+            @{ Text = "Lors du partage de données avec Microsoft Support, un outil de **Transfert Sécurisé de Fichiers** doit être utilisé - Discutez-en avec votre professionnel du support ainsi que de toute préoccupation."; Bold = $false; Indent = $false }
+            @{ Text = "___"; Bold = $false; Indent = $false}
+            @{ Text = "Le script prend en charge deux scénarios : **Configuration uniquement** et **Traçage en temps réel**."; Bold = $false; Indent = $false }
+            @{ Text = "**Configuration uniquement** collecte les informations de configuration statique et les journaux d'événements pertinents, principalement utilisé pour les scénarios post-mortem et la validation des configurations existantes."; Bold = $false; Indent = $true }
+            @{ Text = "**Traçage en temps réel** permet de résoudre les problèmes pouvant être activement reproduits. La collecte de données est extensible avec les options suivantes :
+`t-***Traces réseau*** : *activé par défaut*
+`t-***Compteurs de performance*** : *désactivé par défaut ; nécessaire uniquement pour les problèmes de performance*
+`t-***Traces LDAP*** : *serveurs ADFS uniquement ; désactivé par défaut - à activer uniquement sur demande de Microsoft Support*
+`t-***Traces WAP*** : *serveurs WAP uniquement ; désactivé par défaut - utiliser pour résoudre les problèmes de publication d'applications*"; Bold = $false; Indent = $true }
+            @{ Text = "*sauf instruction contraire, nous recommandons de conserver les options par défaut"; Bold = $false; Indent = $true }
+            @{ Text = "Saisissez un chemin de fichier ou cliquez sur Parcourir pour sélectionner un dossier de destination. Assurez-vous que l'emplacement dispose d'un espace libre suffisant (entre **4 Go** et **10 Go**) et que vous disposez des autorisations d'écriture."; Bold = $false; Indent = $true }
+            @{ Text = "En cliquant sur **OK**, le script collecte les informations de configuration et prépare les journaux de traces. Il se mettra en pause lorsque les préparations seront terminées. Cette pause vous permet de configurer le traçage sur des nœuds de ferme supplémentaires."; Bold = $false; Indent = $true }
+            @{ Text = "Lorsque tous les systèmes sont configurés, appuyez sur '**CTRL + Y**' pour démarrer la capture des données. Répétez cette étape sur chaque nœud où vous souhaitez exécuter les traces."; Bold = $false; Indent = $true }
+            @{ Text = "Le script confirmera que le traçage est actif et vous pourrez alors reproduire le problème.
+Appuyez à nouveau sur '**CTRL + Y**' pour arrêter le traçage."; Bold = $false; Indent = $true }
+            @{ Text = "À la fin, le dossier temporaire sera compressé en un seul fichier **.zip** dans le dossier de destination spécifié."; Bold = $false; Indent = $true }
+            @{ Text = "**Important :**
+`t- essayez d'exécuter la capture pendant les périodes de faible activité d'authentification.
+`t- le script est conçu pour de courtes sessions de diagnostic - ne le laissez pas s'exécuter pendant de longues périodes.
+`t- Événements de sécurité : limités à la durée du traçage en temps réel ; dernières 60 minutes en configuration uniquement
+`t- les traces sont écrites dans des tampons circulaires dans un dossier temporaire au chemin sélectionné (ex. C:\tracing\temporary)."; Bold = $false; Indent = $true }
+        )
+    }
+    ZH = @{
+        WindowTitle      = "ADFS 日誌 收集程式"
+        ScenarioHeader   = "情境"
+        ConfigOnly       = "僅配置資訊"
+        RuntimeTracing   = "執行階段追蹤"
+        OptionsHeader    = "選項"
+        NetTraceLabel    = "包含網路追蹤"
+        PerfLabel        = "包含效能計數器"
+        AdvancedHeader   = "進階選項"
+        AdvancedWarning  = if (!$isproxy) { "可能導致服務重新啟動" } else { $null }
+        AdvancedLabel    = if (!$isproxy) { "LDAP 追蹤" } else { "WAP 追蹤" }
+        DestFolder       = "目標資料夾"
+        BrowseBtn        = "瀏覽..."
+        OkBtn            = "確定"
+        CancelBtn        = "取消"
+        FBTitle          = "資料夾選擇"
+        FBPrompt         = "請選擇目標資料夾:"
+        FBOk             = "確定"
+        FBCancel         = "取消"
+        FBNewFolder      = "新增資料夾"
+        DescriptionParts = @(
+            @{ Text = "此指令碼會從您的 ADFS 環境收集診斷資料，包含配置詳細資訊和相關的 Windows 設定。"; Bold = $false; Indent = $false }
+            @{ Text = "收集的資料可能包含個人識別資訊 (PII) 和/或敏感資料，例如 (但不限於) IP 位址、電腦名稱和使用者名稱。"; Bold = $false; Indent = $false }
+            @{ Text = "與 Microsoft Support 共享資料時，必須使用**安全檔案傳輸**工具 - 請與您的支援專業人員討論此事以及您可能有的任何疑慮。"; Bold = $false; Indent = $false }
+            @{ Text = "___"; Bold = $false; Indent = $false}
+            @{ Text = "此指令碼支援兩種情境：**僅配置資訊**和**執行階段追蹤**。"; Bold = $false; Indent = $false }
+            @{ Text = "**僅配置資訊**收集靜態配置資訊和相關事件記錄，主要用於事後分析和驗證現有配置。"; Bold = $false; Indent = $true }
+            @{ Text = "**執行階段追蹤**允許對可以主動復現的問題進行排解。資料收集可透過以下選項進行擴展：
+`t-**網路追蹤** : 預設為啟用
+`t-**效能計數器** : 預設為停用；僅用於效能相關問題
+`t-**LDAP 追蹤** : 僅限 ADFS 伺服器；預設為停用 - 僅在 Microsoft Support 要求時啟用
+`t-**WAP 追蹤** : 僅限 WAP 伺服器；預設為停用 - 用於排解應用程式發佈問題"; Bold = $false; Indent = $true }
+            @{ Text = "*除非另有指示，否則建議保留預設選項"; Bold = $false; Indent = $true }
+            @{ Text = "輸入檔案路徑或按一下 [瀏覽] 來選擇收集資料的目標資料夾。請確保選擇的位置有足夠的可用空間 (**4 GB** 至 **10 GB**) 且您擁有寫入權限。"; Bold = $false; Indent = $true }
+            @{ Text = "按下 **確定** 後，指令碼會收集配置資訊並準備追蹤記錄。準備完成後會暫停，讓您能在額外的伺服器節點上設定追蹤。"; Bold = $false; Indent = $true }
+            @{ Text = "當所有系統都已設定追蹤後，請按 '**CTRL + Y**' 開始擷取資料。在每個要執行追蹤的節點上重複此步驟。"; Bold = $false; Indent = $true }
+            @{ Text = "指令碼會確認追蹤已啟動，然後您可以重現問題。
+再次按 '**CTRL + Y**' 停止追蹤。"; Bold = $false; Indent = $true }
+            @{ Text = "完成後，暫存資料夾會壓縮成單一的 **.zip** 檔案，儲存在指定的目標資料夾中。"; Bold = $false; Indent = $true }
+            @{ Text = "**重要事項：**
+`t- 請在驗證活動較少的時段執行擷取。
+`t- 此指令碼適用於短時間診斷工作階段 - 請勿長時間執行。
+`t- 安全性事件：限於執行階段追蹤的持續時間；僅配置時為過去 60 分鐘
+`t- 追蹤會寫入所選路徑中暫存資料夾內的循環緩衝區 (例如 C:\tracing\temporary)。"; Bold = $false; Indent = $true }
+        )
+    }
+    ZHS = @{
+        WindowTitle      = "ADFS 跟踪收集器"
+        ScenarioHeader   = "方案"
+        ConfigOnly       = "仅配置"
+        RuntimeTracing   = "运行时跟踪"
+        OptionsHeader    = "选项"
+        NetTraceLabel    = "包含网络跟踪"
+        PerfLabel        = "包含性能计数器"
+        AdvancedHeader   = "高级选项"
+        AdvancedWarning  = if (!$isproxy) { "可能导致服务重启" } else { $null }
+        AdvancedLabel    = if (!$isproxy) { "LDAP 跟踪" } else { "WAP 跟踪" }
+        DestFolder       = "目标文件夹"
+        BrowseBtn        = "浏览..."
+        OkBtn            = "确定"
+        CancelBtn        = "取消"
+        FBTitle          = "选择文件夹"
+        FBPrompt         = "请选择目标文件夹:"
+        FBOk             = "确定"
+        FBCancel         = "取消"
+        FBNewFolder      = "新建文件夹"
+        DescriptionParts = @(
+            @{ Text = "此脚本从您的 ADFS 环境收集诊断数据，包括配置详细信息和相关的 Windows 设置。"; Bold = $false; Indent = $false }
+            @{ Text = "收集的数据可能包含个人身份信息 (PII) 和/或敏感数据，例如（但不限于）IP 地址、计算机名称和用户名。"; Bold = $false; Indent = $false }
+            @{ Text = "与 Microsoft Support 共享数据时，必须使用**安全文件传输**工具 - 请与您的支持专业人员讨论此事以及您可能有的任何疑虑。"; Bold = $false; Indent = $false }
+            @{ Text = "___"; Bold = $false; Indent = $false}
+            @{ Text = "此脚本支持两种方案：**仅配置资讯**和**运行时跟踪**。"; Bold = $false; Indent = $false }
+            @{ Text = "**仅配置**收集静态配置信息和相关事件日志，主要用于事后分析和验证现有配置。"; Bold = $false; Indent = $true }
+            @{ Text = "**运行时跟踪**允许对可以主动重现的问题进行故障排除。数据收集可通过以下选项进行扩展：
+`t-**网络跟踪** : 默认启用
+`t-**性能计数器** : 默认禁用；仅用于性能相关问题
+`t-**LDAP 跟踪** : 仅限 ADFS 服务器；预设为 禁用 - 仅在 Microsoft Support 要求时启用
+`t-**WAP 跟踪** : 仅限 WAP 服务器；预设为禁用 - 用于排查应用程序发布问题"; Bold = $false; Indent = $true }
+            @{ Text = "*除非另有指示，否则建议保留预设为选项"; Bold = $false; Indent = $true }
+            @{ Text = "输入文件路径或单击 [浏览] 来选择收集数据的目标文件夹。请确保所选位置有足够的可用空间（**4 GB** 至 **10 GB**）且您拥有写入权限。"; Bold = $false; Indent = $true }
+            @{ Text = "单击**确定**后，脚本会收集配置信息并准备跟踪日志。准备完成后会暂停，让您能在其他服务器场节点上设置跟踪。"; Bold = $false; Indent = $true }
+            @{ Text = "当所有系统都已设置跟踪后，请按 '**CTRL + Y**' 开始捕获数据。在每个要运行跟踪的节点上重复此步骤。"; Bold = $false; Indent = $true }
+            @{ Text = "脚本会确认跟踪已激活，然后您可以重现问题。
+再次按 '**CTRL + Y**' 停止跟踪。"; Bold = $false; Indent = $true }
+            @{ Text = "完成后，临时文件夹会压缩成单个 **.zip** 文件，保存在指定的目标文件夹中。"; Bold = $false; Indent = $true }
+            @{ Text = "**重要事项：**
+`t- 请在身份验证活动较少的时段执行捕获。
+`t- 此脚本适用于短时间诊断会话 - 请勿长时间运行。
+`t- 安全事件：限于运行时跟踪的持续时间；仅配置时为过去 60 分钟
+`t- 跟踪会写入所选路径中临时文件夹内的循环缓冲区（例如 C:\tracing\temporary）。"; Bold = $false; Indent = $true }
+        )
+    }
+    AR = @{
+        WindowTitle = "أداة جمع بيانات AD FS "
+        ScenarioHeader = "السيناريو"
+        ConfigOnly = "الإعدادات فقط"
+        RuntimeTracing = "تتبع أثناء التشغيل"
+        OptionsHeader = "الخيارات"
+        NetTraceLabel = "جمع بيانات اتصال الشبكة"
+        PerfLabel = "جمع بيانات الأداء"
+        AdvancedHeader = if (!$IsProxy) { "خيارات متقدمة (قد يتم إعادة تشغيل الخدمات)" } else { "خيارات متقدمة" }
+        AdvancedLabel = if (!$IsProxy) { "جمع بيانات LDAP " } else { "جمع بيانات WAP " }
+        DestFolder = "المجلد"
+        BrowseBtn = "استعراض..."
+        OkBtn = "موافق"
+        CancelBtn = "إلغاء الأمر"
+        FBTitle = "تحديد مجلد"
+        FBPrompt = "حدد المجلد:"
+        FBOk = "موافق"
+        FBCancel = "إلغاء الأمر"
+        FBNewFolder = "مجلد جديد"
+
+        DescriptionParts = @(
+            @{ Text = "تجمع هذه الأداة بيانات تشخيصية من بيئة AD FS بما في ذلك الإعدادات وإعدادات Windows ذات الصلة."; Bold = $false; Indent = $false }
+            @{ Text = "قد تتضمن البيانات التي يتم جمعها معلومات تعريف شخصية (PII) و/أو بيانات حساسة، مثل عناوين IP وأسماء الأجهزة وأسماء المستخدمين."; Bold = $false; Indent = $false }
+            @{ Text = "عند مشاركة البيانات مع Microsoft Support، استخدم وسيلة النقل الآمن للملفات. ناقش ذلك مع مهندس الدعم وأبلغه بأي مخاوف لديك."; Bold = $false; Indent = $false }
+            @{ Text = "___"; Bold = $false; Indent = $false}
+            @{ Text = "تدعم هذه الأداة سيناريوهين: **بيانات الإعدادات فقط** أو **جمع البيانات أثناء التشغيل**."; Bold = $false; Indent = $false }
+            @{ Text = "**بيانات الإعدادات فقط**: يجمع بيانات الإعدادات الحالية وسجلات الأحداث ذات الصلة. يُستخدم هذا الخيار عادةً للمراجعة بعد حدوث المشكلة أو للتحقق من الإعدادات."; Bold = $false; Indent = $true }
+            @{ Text = "**جمع البيانات أثناء التشغيل**: يُستخدم عند إمكانية تكرار المشكلة. يمكن توسيع نطاق جمع البيانات باستخدام الخيارات التالية:
+`t- ***جمع بيانات اتصال الشبكة***: *مُفعّل بشكل افتراضي*
+`t- ***جمع بيانات الأداء***: *غير مُفعّل بشكل افتراضي؛ استخدمه فقط لمشاكل الأداء (Performance)*
+`t- ***جمع بيانات LDAP ***: *لخوادم AD FS فقط؛ غير مُفعّل بشكل افتراضي، قم بتفعيله عند الطلب من قبل Microsoft Support فقط*
+`t- ***جمع بيانات WAP ***: *لخوادم WAP فقط؛ غير مُفعّل بشكل افتراضي، استخدمه عند تتبع مشاكل نشر التطبيقات*"; Bold = $false; Indent = $true }
+            @{ Text = "*نوصي باستخدام الخيارات الافتراضية ما لم يُطلب منك غير ذلك. *"; Bold = $false; Indent = $true }
+            @{ Text = "أدخل مسار المجلد، أو انقر فوق [استعراض] لتحديد المجلد الذي سيتم حفظ البيانات فيه. تأكد من توفر مساحة كافية على القرص (من **4 GB ** إلى **10 GB **) ومن امتلاك صلاحيات الكتابة والحفظ على هذا المجلد."; Bold = $false; Indent = $true }
+            @{ Text = "بعد النقر على **موافق**، تجمع الأداة بيانات الإعدادات وتقوم بتجهيز سجلات التتبع. عند اكتمال تجهيز النظام لبدء جمع البيانات ستتوقف الأداة مؤقتًا لتتمكن من تشغيل الأداة بنفس الإعدادات على خوادم ADFS الأخرى ."; Bold = $false; Indent = $true }
+            @{ Text = "عندما تصبح جميع خوادم ADFS جاهزة، اضغط '** Ctrl+Y **' لبدء جمع البيانات. كرر هذه الخطوة على كل خادم ADFS تريد جمع بيانات التتبع منه."; Bold = $false; Indent = $true }
+            @{ Text = "ستظهر الأداة أن جمع البيانات قد بدأ. قم بتكرار المشكلة.
+اضغط '** Ctrl+Y **' مرة أخرى لإيقاف جمع البيانات."; Bold = $false; Indent = $true }
+            @{ Text = "عند الانتهاء، سيتم ضغط المجلد المؤقت في ملف مضغوط ** .zip ** واحد داخل المجلد المحدد."; Bold = $false; Indent = $true }
+            @{ Text = "**هام:**
+`t- حاول جمع البيانات خلال الفترات التي يكون فيها نشاط المستخدمين منخفضا.
+`t- هذه الأداة مخصصة لجمع البيانات خلال فترة قصيرة؛ لا تتركها قيد التشغيل لفترة طويلة.
+`t- سجلات أحداث الأمان: يتم تجميع السجلات خلال فترة التشغيل فقط، أو لآخر 60 دقيقة عند استخدام وضع بيانات الإعدادات فقط.
+`t- يتم جمع البيانات بطريقة تدويرية (circular) داخل مجلد مؤقت ضمن المسار المحدد، مثل: C:\tracing\temporary ."; Bold = $false; Indent = $true }
+        )
+    }
+}
+}
+#endregion Localization
+##########################################################################
 #region UI
 function filepathvalidformat {
     param (
@@ -327,7 +657,7 @@ function filepathvalidformat {
     return [regex]::IsMatch($path, $filepathreg)
 }
 
-#region Folder Browser Dialog
+#region Folder Browser Dialog (Server Core compatible)
 function Show-FolderBrowserDialog {
     <#
     .SYNOPSIS
@@ -753,7 +1083,13 @@ function Add-TextBlockInlines {
 }
 
 function Build-TextBlockPanel {
-
+    <#
+    .SYNOPSIS
+        Populates a StackPanel from an array of @{Text; Bold; Indent} parts.
+        Numbered items with Indent=$true get a hanging-indent layout.
+        The first part whose Bold=$true and that has a following Bold part
+        are rendered as header + subtitle with a separator line underneath.
+    #>
     param(
         [Parameter(Mandatory)][System.Windows.Controls.StackPanel]$Panel,
         [Parameter(Mandatory)][array]$Parts
@@ -797,6 +1133,7 @@ function Build-TextBlockPanel {
     # --- Body parts ---
     for ($i = $startIndex; $i -lt $Parts.Count; $i++) {
         $part = $Parts[$i]
+        $numMatch = [regex]::Match($part.Text, '^(\d+\.)\s+')
 
         # Horizontal rule: text is exactly three (or more) underscores
         if ($part.Text -match '^\s*_{3,}\s*$') {
@@ -808,8 +1145,6 @@ function Build-TextBlockPanel {
             [void]$Panel.Children.Add($hr)
             continue
         }
-
-        $numMatch = [regex]::Match($part.Text, '^(\d+\.)\s+')
 
         if ($part.Indent -and $numMatch.Success) {
             # Numbered item with hanging indent
@@ -908,7 +1243,7 @@ $eulaParts = @(
     @{ Text = "4. EXPORT RESTRICTIONS. Customer must comply with all domestic and international export laws and regulations that apply to the Software, which include restrictions on destinations, end users, and end use. For further information on export restrictions, visit https://aka.ms/exporting ."; Bold = $false; Indent = $true }
     @{ Text = "5. REPRESENTATIONS AND WARRANTIES. Customer will comply with all applicable laws under this agreement, including in the delivery and use of all data. Customer or a designee agreeing to these terms on behalf of an entity represents and warrants that it (i) has the full power and authority to enter into and perform its obligations under this agreement, (ii) has full power and authority to bind its affiliates or organization to the terms of this agreement, and (iii) will secure the permission of the other party prior to providing any source code in a manner that would subject the other party's intellectual property to any other license terms or require the other party to distribute source code to any of its technologies."; Bold = $false; Indent = $true }
     @{ Text = "6. DISCLAIMER OF WARRANTY. THE SOFTWARE IS PROVIDED `"AS IS,`" WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL MICROSOFT OR ITS LICENSORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THE SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE."; Bold = $false; Indent = $true }
-    @{ Text = "7. LIMITATION ON AND EXCLUSION OF DAMAGES. IF YOU HAVE ANY BASIS FOR RECOVERING DAMAGES DESPITE THE PRECEDING DISCLAIMER OF WARRANTY, YOU CAN RECOVER FROM MICROSOFT AND ITS SUPPLIERS ONLY DIRECT DAMAGES UP TO U.S. `$5.00. YOU CANNOT RECOVER ANY OTHER DAMAGES, INCLUDING CONSEQUENTIAL, LOST PROFITS, SPECIAL, INDIRECT, OR INCIDENTAL DAMAGES. This limitation applies to (i) anything related to the Software, services, content (including code) on third party Internet sites, or third party applications; and (ii) claims for breach of contract, warranty, guarantee, or condition; strict liability, negligence, or other tort; or any other claim; in each case to the extent permitted by applicable law. It also applies even if Microsoft knew or should have known about the possibility of the damages. The above limitation or exclusion may not apply to you because your state, province, or country may not allow the exclusion or limitation of incidental, consequential, or other damages."; Bold = $false; Indent = $true }
+    @{ Text = "7. LIMITATION ON AND EXCLUSION OF DAMAGES. IF YOU HAVE ANY BASIS FOR RECOVERING DAMAGES DESPITE THE PRECEDING DISCLAIMER OF WARRANTY, YOU CAN RECOVER FROM MICROSOFT AND ITS SUPPLIERS ONLY DIRECT DAMAGES UP TO U.S. $5.00. YOU CANNOT RECOVER ANY OTHER DAMAGES, INCLUDING CONSEQUENTIAL, LOST PROFITS, SPECIAL, INDIRECT, OR INCIDENTAL DAMAGES. This limitation applies to (i) anything related to the Software, services, content (including code) on third party Internet sites, or third party applications; and (ii) claims for breach of contract, warranty, guarantee, or condition; strict liability, negligence, or other tort; or any other claim; in each case to the extent permitted by applicable law. It also applies even if Microsoft knew or should have known about the possibility of the damages. The above limitation or exclusion may not apply to you because your state, province, or country may not allow the exclusion or limitation of incidental, consequential, or other damages."; Bold = $false; Indent = $true }
     @{ Text = "8. BINDING ARBITRATION AND CLASS ACTION WAIVER. This section applies if you live in (or, if a business, your principal place of business is in) the United States. If you and Microsoft have a dispute, you and Microsoft agree to try for 60 days to resolve it informally. If you and Microsoft can't, you and Microsoft agree to binding individual arbitration before the American Arbitration Association under the Federal Arbitration Act (`"FAA`"), and not to sue in court in front of a judge or jury. Instead, a neutral arbitrator will decide. Class action lawsuits, class-wide arbitrations, private attorney-general actions, and any other proceeding where someone acts in a representative capacity are not allowed; nor is combining individual proceedings without the consent of all parties. The complete Arbitration Agreement contains more terms and is at https://aka.ms/arb-agreement-4 . You and Microsoft agree to these terms."; Bold = $false; Indent = $true }
     @{ Text = "9. LAW AND VENUE. If U.S. federal jurisdiction exists, you and Microsoft consent to exclusive jurisdiction and venue in the federal court in King County, Washington for all disputes heard in court (excluding arbitration). If not, you and Microsoft consent to exclusive jurisdiction and venue in the Superior Court of King County, Washington for all disputes heard in court (excluding arbitration)."; Bold = $false; Indent = $true }
     @{ Text = "10. ENTIRE AGREEMENT. This agreement, and any other terms Microsoft may provide for supplements, updates, or third-party applications, is the entire agreement for the software."; Bold = $false; Indent = $true }
@@ -1053,9 +1388,10 @@ $eulaParts = @(
 #endregion EULA
 
 Function RunDialog {
-$advancedHeader = "Advanced Options"
-$AdvancedWarning = if (!$isproxy) { "Can cause service restarts" } else { $null }
-$advancedLabel  = if (!$isProxy) { "LDAP Traces" } else { "WAP Traces" }
+
+$advancedHeader  = "Advanced Options"
+$advancedWarning = if (!$isproxy) { "Can cause service restarts" } else { $null }
+$advancedLabel   = if (!$isproxy) { "LDAP Traces" } else { "WAP Traces" }
 
 [xml]$xaml = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -1117,7 +1453,7 @@ $advancedLabel  = if (!$isProxy) { "LDAP Traces" } else { "WAP Traces" }
         <!-- Modern CheckBox Style -->
         <Style TargetType="CheckBox">
             <Setter Property="FontSize" Value="13"/>
-            <Setter Property="FontFamily" Value="{StaticResource AppFont}"/>
+            <Setter Property="FontFamily" Value="{DynamicResource AppFont}"/>
             <Setter Property="Foreground" Value="{StaticResource TextPrimary}"/>
             <Setter Property="Margin" Value="0,4,20,4"/>
             <Setter Property="VerticalContentAlignment" Value="Center"/>
@@ -1133,7 +1469,7 @@ $advancedLabel  = if (!$isProxy) { "LDAP Traces" } else { "WAP Traces" }
             <Setter Property="Background" Value="{StaticResource AccentBrush}"/>
             <Setter Property="Foreground" Value="White"/>
             <Setter Property="FontSize" Value="13"/>
-            <Setter Property="FontFamily" Value="{StaticResource AppFont}"/>
+            <Setter Property="FontFamily" Value="{DynamicResource AppFont}"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
             <Setter Property="Padding" Value="24,5"/>
             <Setter Property="MinWidth" Value="100"/>
@@ -1169,7 +1505,7 @@ $advancedLabel  = if (!$isProxy) { "LDAP Traces" } else { "WAP Traces" }
             <Setter Property="Background" Value="{StaticResource CardBrush}"/>
             <Setter Property="Foreground" Value="{StaticResource TextPrimary}"/>
             <Setter Property="FontSize" Value="13"/>
-            <Setter Property="FontFamily" Value="{StaticResource AppFont}"/>
+            <Setter Property="FontFamily" Value="{DynamicResource AppFont}"/>
             <Setter Property="Padding" Value="24,5"/>
             <Setter Property="MinWidth" Value="100"/>
             <Setter Property="Cursor" Value="Hand"/>
@@ -1200,7 +1536,7 @@ $advancedLabel  = if (!$isProxy) { "LDAP Traces" } else { "WAP Traces" }
         <!-- Modern TextBox Style -->
         <Style TargetType="TextBox">
             <Setter Property="FontSize" Value="13"/>
-            <Setter Property="FontFamily" Value="{StaticResource AppFont}"/>
+            <Setter Property="FontFamily" Value="{DynamicResource AppFont}"/>
             <Setter Property="Padding" Value="10,5"/>
             <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
             <Setter Property="BorderThickness" Value="1"/>
@@ -1240,14 +1576,23 @@ $advancedLabel  = if (!$isProxy) { "LDAP Traces" } else { "WAP Traces" }
         </Grid.RowDefinitions>
 
         <!-- Title Bar -->
-        <StackPanel Grid.Row="0" Margin="0,0,0,8">
-            <TextBlock FontWeight="Bold" FontFamily="{StaticResource AppFont}" Foreground="{StaticResource AccentBrush}">
-                <Run Text="ADFS Trace Collector" FontSize="20"/>
-                <Run Text=" $scriptversion" FontSize="13"/>
-            </TextBlock>
-            <Rectangle Height="2" Fill="{StaticResource AccentBrush}" Margin="0,6,0,0"
-                       HorizontalAlignment="Left" Width="50" RadiusX="1" RadiusY="1"/>
-        </StackPanel>
+        <Grid Grid.Row="0" Margin="0,0,0,8">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <StackPanel Grid.Column="0">
+                <TextBlock FontWeight="Bold" FontFamily="{StaticResource AppFont}" Foreground="{StaticResource AccentBrush}">
+                    <Run Text="ADFS Trace Collector" FontSize="20"/>
+                    <Run Text=" $scriptversion" FontSize="13"/>
+                </TextBlock>
+                <Rectangle Height="2" Fill="{StaticResource AccentBrush}" Margin="0,6,0,0"
+                           HorizontalAlignment="Left" Width="50" RadiusX="1" RadiusY="1"/>
+            </StackPanel>
+            <ComboBox x:Name="LangCombo" Grid.Column="1" VerticalAlignment="Top" Margin="0,4,0,0"
+                      Width="120" FontSize="12" FontFamily="{DynamicResource AppFont}"
+                      SelectedIndex="0" IsEditable="False"/>
+        </Grid>
 
         <!-- Description Area -->
         <Border Grid.Row="1" Background="White" CornerRadius="6"
@@ -1255,7 +1600,7 @@ $advancedLabel  = if (!$isProxy) { "LDAP Traces" } else { "WAP Traces" }
                 Margin="0,0,0,4">
             <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="16,12">
                 <StackPanel x:Name="DescriptionPanel" Grid.IsSharedSizeScope="True"
-                            TextBlock.FontSize="13" TextBlock.FontFamily="{StaticResource AppFont}"
+                            TextBlock.FontSize="13" TextBlock.FontFamily="{DynamicResource AppFont}"
                             TextBlock.Foreground="{StaticResource TextPrimary}" TextBlock.LineHeight="20"/>
             </ScrollViewer>
         </Border>
@@ -1264,7 +1609,7 @@ $advancedLabel  = if (!$isProxy) { "LDAP Traces" } else { "WAP Traces" }
         <GroupBox Grid.Row="2" Header="Scenario" Style="{StaticResource ModernGroupBox}">
             <Canvas Height="22" Margin="0,2,0,0">
                 <CheckBox x:Name="cfgonly" Content="Configuration only" Canvas.Left="0" Canvas.Top="2"/>
-                <CheckBox x:Name="TracingMode" Content="Runtime Tracing" Canvas.Left="240" Canvas.Top="2"/>
+                <CheckBox x:Name="TracingMode" Content="Runtime Tracing" Canvas.Left="220" Canvas.Top="2"/>
             </Canvas>
         </GroupBox>
 
@@ -1279,7 +1624,7 @@ $advancedLabel  = if (!$isProxy) { "LDAP Traces" } else { "WAP Traces" }
                       Margin="0,0,8,0">
                 <Canvas Height="22" Margin="0,2,0,0">
                     <CheckBox x:Name="NetTrace" Content="Include Network Traces" IsEnabled="False" Canvas.Left="0" Canvas.Top="2"/>
-                    <CheckBox x:Name="perfc" Content="Include Performance Counter" IsEnabled="False" Canvas.Left="240" Canvas.Top="2"/>
+                    <CheckBox x:Name="perfc" Content="Include Performance Counter" IsEnabled="False" Canvas.Left="220" Canvas.Top="2"/>
                 </Canvas>
             </GroupBox>
 
@@ -1323,7 +1668,7 @@ $reader = New-Object System.Xml.XmlNodeReader $xaml
 $Window = [Windows.Markup.XamlReader]::Load($reader)
 
 # Get named controls
-$DescriptionPanel  = $Window.FindName("DescriptionPanel")
+$DescriptionPanel = $Window.FindName("DescriptionPanel")
 $cfgonly           = $Window.FindName("cfgonly")
 $TracingMode       = $Window.FindName("TracingMode")
 $NetTrace          = $Window.FindName("NetTrace")
@@ -1364,34 +1709,92 @@ function Set-AdvancedGroupHeader {
 Set-AdvancedGroupHeader -HeaderText $advancedHeader -WarningText $advancedWarning
 $advancedCheck.Content = $advancedLabel
 
-# Build the description with inline formatting (Bold support via Runs)
-$descriptionParts = @(
-    @{ Text = "This script collects diagnostic data from your ADFS environment, including configuration details and related Windows settings."; Bold = $false; Indent = $false }
-    @{ Text = "The collected data may contain Personally Identifiable Information (PII) and/or sensitive data, such as (but not limited to) IP addresses; PC names; and user names."; Bold = $false; Indent = $false }
-    @{ Text = "When sharing data with Microsoft CSS, a **Secure File Transfer** tool must be used - Discuss this with your support professional and also any concerns you may have."; Bold = $false; Indent = $false }
-    @{ Text = "___"; Bold = $false; Indent = $false}
-    @{ Text = "The script supports two scenario:  **Configuration only** and **Runtime tracing**."; Bold = $false; Indent = $false }
-    @{ Text = "**Configuration only** collects static configuration information and relevant event logs and is primarily used for port-mortem scenarios and when validating existing configurations."; Bold = $false; Indent = $true }
-    @{ Text = "**Runtime tracing** allows for troubleshooting problems that can be actively reproduced. The data collection in Runtime tracing is furthermore extensible through the following options:
-`t-***Network Traces*** : *enabled by default* 
-`t-***Performance Counters*** : *disabled by default; only need for performance related issues*
-`t-***LDAP traces*** : *ADFS servers only; disabled by default - DO NOT enable this option unless required by Microsoft CSS*
-`t-***WAP Traces*** : *WAP servers only; disabled by default - use when troubleshooting app publishing*"; Bold = $false; Indent = $true }
-    @{ Text = "*unless otherwise instructed we recommend to keep the default options"; Bold = $false; Indent = $true }
-    @{ Text = "Type a file path or click Browse to select a destination folder for the collected data. Ensure that the selected location has sufficient free space (expect between **4 GB** and **10 GB**) and that you have write permissions to it."; Bold = $false; Indent = $true }
-    @{ Text = "Once you click **OK**, the script collects the configuration informations and prepares the trace logs it. It will pause when preparations are completed awaiting further input. This pause let's you set up tracing on additional farm nodes."; Bold = $false; Indent = $true }
-    @{ Text = "When all systems are setup for tracing press '**CTRL + Y**' to start capturing data. Repeat this step on each node you want to run the traces on."; Bold = $false; Indent = $true }
-    @{ Text = "The script will confirm when tracing is active and you can then reproduce the problem.
-Press '**CTRL + Y**' again to stop the tracing."; Bold = $false; Indent = $true }
-    @{ Text = "At compleption, the temporary folder will be compressed into a single **.zip** file at the specified destination folder."; Bold = $false; Indent = $true }
-    @{ Text = "**Important:**
-`t- try to run the capture during periods of low authentication activity.
-`t- the script is intended for short diagnostic sessions - do not leave it running for extended periods.
-`t- Security Events: limited to the duration of the runtime trace; last 60 minutes when using configuration only
-`t- traces are written to circular buffers inside a temporary folder at the selected path (e.g. C:\tracing\temporary)."; Bold = $false; Indent = $true }
-)
+# Language dropdown
+$LangCombo = $Window.FindName("LangCombo")
+$langMap = [ordered]@{
+    'English'            = 'EN'
+    '日本語'             = 'JP'
+    'Español'            = 'ES'
+    'Français'           = 'FR'
+    '繁體中文'           = 'ZH'
+    '简体中文'           = 'ZHS'
+    'العربية'            = 'AR'
+}
+foreach ($display in $langMap.Keys) {
+    [void]$LangCombo.Items.Add($display)
+}
+$LangCombo.SelectedIndex = 0
 
-Build-TextBlockPanel -Panel $DescriptionPanel -Parts $descriptionParts
+$uiStrings = Get-UILocalizedStrings $isproxy
+
+# Lookup GroupBox parents for header updates
+$scenarioGroup  = $cfgonly.Parent.Parent        # GroupBox containing Scenario
+$optionsGroup   = $NetTrace.Parent.Parent        # GroupBox containing Options
+$destGroup      = $TargetFolder.Parent.Parent    # GroupBox containing Destination Folder
+
+# Language switch function
+$script:currentLang = 'EN'
+$setLanguage = {
+    param([string]$lang)
+    $s = $uiStrings[$lang]
+    $script:currentLang = $lang
+
+    # Window title
+    $Window.Title = $s.WindowTitle
+
+    # GroupBox headers
+    $scenarioGroup.Header  = $s.ScenarioHeader
+    $optionsGroup.Header   = $s.OptionsHeader
+    Set-AdvancedGroupHeader -HeaderText $s.AdvancedHeader -WarningText $s.AdvancedWarning
+    $destGroup.Header      = $s.DestFolder
+
+    # CheckBox labels
+    $cfgonly.Content       = $s.ConfigOnly
+    $TracingMode.Content   = $s.RuntimeTracing
+    $NetTrace.Content      = $s.NetTraceLabel
+    $perfc.Content         = $s.PerfLabel
+    $advancedCheck.Content = $s.AdvancedLabel
+
+    # Buttons
+    $SelFolder.Content     = $s.BrowseBtn
+    $Okbtn.Content         = $s.OkBtn
+    $cnlbtn.Content        = $s.CancelBtn
+
+    # Description panel
+    Build-TextBlockPanel -Panel $DescriptionPanel -Parts $s.DescriptionParts
+
+    # Font family for CJK languages
+    $fontFamily = switch ($lang) {
+        'ZHS' { 'Microsoft YaHei, Segoe UI' }
+        'ZH'  { 'Microsoft JhengHei, Segoe UI' }
+        'JP'  { 'Yu Gothic UI, Meiryo, Segoe UI' }
+        'AR'  { 'Sakkal Majalla, Segoe UI' }
+        default { 'Segoe UI' }
+    }
+    $Window.Resources['AppFont'] = [System.Windows.Media.FontFamily]::new($fontFamily)
+    $Window.FontFamily = [System.Windows.Media.FontFamily]::new($fontFamily)
+
+    # RTL support for Arabic
+    $flowDir = if ($lang -eq 'AR') { [System.Windows.FlowDirection]::RightToLeft } else { [System.Windows.FlowDirection]::LeftToRight }
+    $Window.FlowDirection = $flowDir
+
+    # Sync combo selection (avoid re-triggering)
+    $displayName = ($langMap.GetEnumerator() | Where-Object { $_.Value -eq $lang }).Key
+    if ($LangCombo.SelectedItem -ne $displayName) {
+        $LangCombo.SelectedItem = $displayName
+    }
+}
+
+# Wire language dropdown
+$LangCombo.Add_SelectionChanged({
+    $selected = $LangCombo.SelectedItem
+    if ($selected -and $langMap.Contains($selected)) {
+        & $setLanguage $langMap[$selected]
+    }
+})
+
+# Apply default language
+& $setLanguage 'EN'
 
 # ---- Event Handlers ----
 
@@ -1427,7 +1830,11 @@ $TracingMode.Add_Unchecked({
 
 # Browse button (WPF folder browser — works on Server Core)
 $SelFolder.Add_Click({
-    $selected = Show-FolderBrowserDialog -InitialPath $TargetFolder.Text
+    $s = $uiStrings[$script:currentLang]
+    $selected = Show-FolderBrowserDialog -InitialPath $TargetFolder.Text `
+        -DialogTitle $s.FBTitle -Prompt $s.FBPrompt `
+        -OkLabel $s.FBOk -CancelLabel $s.FBCancel `
+        -NewFolderLabel $s.FBNewFolder
     if ($selected) {
         $TargetFolder.Text = $selected
     }
@@ -1460,8 +1867,8 @@ if ($Window.Tag -eq "OK") {
         NetTraceEnabled  = $NetTrace.IsChecked
         ConfigOnly       = $cfgonly.IsChecked
         PerfCounter      = $perfc.IsChecked
-        LdapTraceEnabled = if (!$isProxy) { $advancedCheck.IsChecked } else { $false }
-        WAPTraceEnabled  = if ($isProxy)  { $advancedCheck.IsChecked } else { $false }
+        LdapTraceEnabled = if (!$isproxy) { $advancedCheck.IsChecked } else { $false }
+        WAPTraceEnabled  = if ($isproxy)  { $advancedCheck.IsChecked } else { $false }
     }
 }
 else {
@@ -1471,11 +1878,12 @@ else {
 }
 
 Function Pause { param([String]$Message,[String]$MessageTitle,[String]$MessageC)
-   # "ReadKey" is not supported in PowerShell ISE.
+   # "ReadKey" not supported in PowerShell ISE.
    If ($psISE) {
-    # Show MessageBox
-    [void][System.Windows.MessageBox]::Show($Message, $MessageTitle, 'OK')
-    Return
+      # Show MessageBox UI instead
+      $Shell = New-Object -ComObject "WScript.Shell"
+      $Shell.Popup($Message, 0, $MessageTitle, 0)|Out-Null
+      Return
    }
    #If not ISE we prompt for key stroke
     Write-Host -NoNewline $MessageC -ForegroundColor Yellow
@@ -1485,7 +1893,8 @@ Function Pause { param([String]$Message,[String]$MessageTitle,[String]$MessageC)
 ##########################################################################
 #region Functions
 Function IsAdminAccount {
-    return ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    #return ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    return $true
 }
 
 Function IsServerOS {
@@ -1497,7 +1906,10 @@ Function IsServerOS {
 }
 
 function Test-IsWAPInstalled {
-    ((Get-WindowsFeature -name ADFS-Proxy).Installed -or (Get-WindowsFeature -name Web-Application-Proxy).Installed)
+    #always ensure we return a result
+    $result = $false
+    $result = ((Get-WindowsFeature -name ADFS-Proxy).Installed -or (Get-WindowsFeature -name Web-Application-Proxy).Installed)
+    return $result
 }
 
 function LDAPQuery {
@@ -1875,7 +2287,7 @@ The operating system version is lower than Windows Server 2019 (10.0.17763). The
 }
 Function Test-WiaSupportedUseragents {
     # Unsupported user agents may cause issues with WIA authentication on various platforms if internal. In particular mobile apps using webview controls or devices that dont support wia per se
-    # usually this is due to using too generic user agents. We will extend this list as needed
+    # usually this is due to using too generic user agents. Update the list as needed. We will extend this list as needed
     $unsupported=@("Mozilla/5.0","Mozilla/4.0","Chrome","FireFox","Safari","Opera","Vivaldi","Brave","OPR","Edg/*","Edge/*","Edg/","Edge/","Edge/12","Webkit/","=~Windows\s*NT.*Edge")
     $agents = (get-adfsproperties).WiasupportedUseragents
     $commonItems=@()
@@ -1914,6 +2326,7 @@ If a misconfiguration exists it is currently not known by this script.")
     
     return $message
 }
+
 
 function Get-AzureMFAConfig {
     $dbconfig = Test-IsWID
@@ -2203,7 +2616,7 @@ Function GatherTheRest {
     Get-CertificatesByStore NTAuth| out-file  $env:COMPUTERNAME-Certificates-NTAuth.txt
     Get-CertificatesByStore ADFSTrustedDevices| out-file  $env:COMPUTERNAME-Certificates-ADFSTrustedDevices.txt
     
-    if(!$isProxy) {
+    if(!$isproxy) {
         Get-Adfssslcertificate|foreach-object {if($_.CtlStoreName -eq "ClientAuthIssuer" ) {Get-CertificatesByStore ClientAuthIssuer| out-file $env:COMPUTERNAME-Certificates-CliAuthIssuer.txt }}
     
     if ( (Test-IsWID).IsWID) {
@@ -2229,6 +2642,7 @@ Function GatherTheRest {
 }
 
 function Enable-ADFSPerfcounters {
+
 Param(
 		[Parameter(Mandatory=$false)]
         [ValidateSet("ADFSProxy", "ADFSBackend")]
@@ -2239,6 +2653,7 @@ Param(
 		[string]$Action
 		)
 
+    #sanity checks
     if (-not $PSBoundParameters.ContainsKey('Scenario')) {
         "Missing Parameter. You must supply a Scenario. Allowed values: ADFSProxy, ADFSBackend.";
         break;
@@ -2249,6 +2664,7 @@ Param(
         break;
     }
 
+    #Action logic
     switch ($Action) {
 
         "Create" {  # create the perfcounter collection, we distinguish between WAP and ADFS scenario but always add general counters.
@@ -2296,7 +2712,7 @@ Function EnablePerfCounter {
                     
         Write-host "Enabling PerfCounter" -ForegroundColor DarkCyan
         
-        if ($isProxy) { $Scenario='ADFSProxy' } else {$Scenario='ADFSBackend' }
+        if ($isproxy) { $Scenario='ADFSProxy' } else {$Scenario='ADFSBackend' }
 
             Push-Location $TraceDir
             cmd /c $(Enable-ADFSPerfcounters $Scenario Create) |Out-Null
@@ -2311,7 +2727,7 @@ Function DisablePerfCounter {
         
         Write-Host "Stopping Performance Monitoring" -ForegroundColor DarkCyan
         
-        if ($isProxy) { $Scenario='ADFSProxy' } else {$Scenario='ADFSBackend' }
+        if ($isproxy) { $Scenario='ADFSProxy' } else {$Scenario='ADFSBackend' }
         Push-Location $TraceDir
         cmd /c $(Enable-ADFSPerfcounters $Scenario Disable) |Out-Null
         cmd /c $(Enable-ADFSPerfcounters $Scenario Delete) |Out-Null
@@ -2342,7 +2758,7 @@ Function DisableNetworkTrace {
 }
 
 Function EnableLDAPTrace {
-    if(!$isProxy) {
+    if(!$isproxy) {
         if ($TraceEnabled -and $LdapTraceEnabled) {
         Write-host "Starting LDAP Trace" -ForegroundColor DarkCyan
         #enable per ldap tracing for: powershell/ise; wsmprovhost and the service itself
@@ -2361,7 +2777,7 @@ Function EnableLDAPTrace {
 }
 
 Function DisableLDAPTrace {
-    if(!$isProxy) {
+    if(!$isproxy) {
         if($TraceEnabled -and $LdapTraceEnabled) {
             Write-Host "Stopping LDAP Tracing" -ForegroundColor DarkCyan
             Push-Location $TraceDir
@@ -2380,11 +2796,10 @@ Function DisableLDAPTrace {
 }
 
 Function EnableWAPTrace {
-    if($isProxy) {
+    if($isproxy) {
         if ($TraceEnabled -and $WAPTraceEnabled) {
             Write-host "Starting WAP Tracing" -ForegroundColor DarkCyan
             Push-Location $TraceDir
-
             ForEach ($log in $WAPTraceOn) {
 	        cmd.exe /c $log |Out-Null
             }
@@ -2395,7 +2810,7 @@ Function EnableWAPTrace {
 }
 
 Function DisableWAPTrace {
-    if($isProxy) {
+    if($isproxy) {
         if($TraceEnabled -and $WAPTraceEnabled) {
             Write-Host "Stopping WAP Tracing" -ForegroundColor DarkCyan
             Push-Location $TraceDir
@@ -2418,6 +2833,7 @@ function  Test-KRBEncTypePolicy {
     $EncType = 31
 
     $key = [Microsoft.Win32.Registry]::LocalMachine.OpenSubKey($keyPath)
+
     #if policy key exists try to get the value
     if (($key.Name)) {
         if ($key.GetValueNames() -icontains $valueName) {
@@ -2432,13 +2848,15 @@ function  Test-KRBEncTypePolicy {
             }  
         }
     }
-
-    #do we still need to look into the classic path  HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\Lsa\Kerberos\Parameters ? 
+   
+    #desktop GPO allows to configure ETypes only and FutureFlags. if the value is greater than 0x1f in GPO we must expect that Futureflags had been set
     #remove the futureflag from enumeration
+
     if ($EncType -gt 31) {
         $EncType = $EncType - 2147483616
     }
     #watch out if there is someone configuring the regkeys manually instead via GPO, it might be they use wrong or negative values
+    # finally convert the value to a meaningful string and return
    return ([KrbEnum]::EnumerateKrb($EncType))
 }
 
@@ -2498,6 +2916,19 @@ Function Test-ADFSFarmnameIsNotCNAME {
 }
 
 function Get-ADFSFarmNameFromSSLBinding {
+    <#
+    .SYNOPSIS
+    Retrieves the ADFS farm name from SSL certificate bindings.
+    
+    .DESCRIPTION
+    This function examines SSL certificate bindings to identify the ADFS farm hostname.
+    It filters out localhost, enterprise registration, and certificate authentication endpoints
+    to find the primary ADFS service hostname.
+    
+    .OUTPUTS
+    String - Returns the first valid ADFS farm hostname found, or $null if none found.
+    #>
+    
     try {
         # Get all SSL certificate bindings first
         $sslCertificates = Get-AdfsSslCertificate
@@ -2527,7 +2958,7 @@ function Get-ServiceAccountDetails {
     $gsad = New-Object -TypeName PSObject
 
     #only execute if we are not on proxy/wap
-    if (!$isProxy) {
+    if (!$isproxy) {
         #get currently config service account if this fails
         try {
             $svc = new-object System.ServiceProcess.ServiceController('adfssrv')
@@ -2579,7 +3010,7 @@ function Get-ServiceAccountDetails {
         } catch { 
             #we failed to read the SPN value and must assume there is no SPN configured for this service account
             if ($_.FullyQualifiedErrorID -eq 'InvokeMethodOnNull' ) {
-                $gsad | Add-Member -MemberType NoteProperty -Name "OnAccountRegisteredSPN" -Value "ERROR: No SPNs are configured for this Service Account."
+                $gsad | Add-Member -MemberType NoteProperty -Name "OnAccountRegisteredSPN" -Value "Error: No SPNs are configured for this Service Account."
             }
         }
 
@@ -2632,24 +3063,40 @@ function Get-ServiceAccountDetails {
     #first check create the connection object. Use GlobalCatalog as we may have a dupe in a child domain of the forest
     if (!($null -eq $farmname )) {
         $gconn= (New-Object System.DirectoryServices.DirectoryEntry("GC://$domain/RootDSE")).dnshostname
-        $filter= [string]::format("(serviceprincipalname=*/{0})", $farmname ) 
+        #$filter= [string]::format("(serviceprincipalname=*/{0})", $farmname ) 
+        # replace old wildcard query with index optimized SPN query for http/farmname and host/farmname. 
+        # old query ran against all DS objects which means a DC spents significant CPU and disk io on running through all objects, using host/, http/ query instead runs against the SPN index and is much faster.
+        $filter= [string]::format("(|(servicePrincipalName=http/{0})(servicePrincipalName=host/{0})) ", $farmname ) 
         [string]$att = "*"
     }
 
-    #if we dont have a hostname we didnt cannot create the ldap connection and filter so we dont need to run the query after all
+    #if we dont have a hostname we cannot create the ldap connection and filter so we dont need to run the query after all
     if (!($null -eq $gconn)) {
         
         $re= LDAPQuery -filter $filter -att $att -conn $gconn
-    
-        if ($re.GetType().Name -eq 'SearchResponse' -And ($re.entries.count -ge 1)) {
-            $obj= $re.Entries | ForEach-Object { 
-                                [String]::Format("`r`nAccount: {0}`r`nSPNs : {1}`n",
-                                            $_.distinguishedName ,  
-                                            ($_.Attributes.'serviceprincipalname'.GetValues('string') -join " ; ") )
-                                            }
-            $gsad | Add-Member -MemberType NoteProperty -Name "Duplicate SPN" -Value $obj
+
+        if ($null -eq $re -or $re.GetType().Name -ne 'SearchResponse') {
+            $gsad | Add-Member -MemberType NoteProperty -Name "Duplicate SPN Check" -Value "Error: Duplicate SPN check failed. LDAP query did not return a valid SearchResponse.`r`nYou can use 'setspn.exe -f -q */$($farmname)' to query for duplicate SPN's in the forest.`r`n."
         } else {
-            $gsad | Add-Member -MemberType NoteProperty -Name "Duplicate SPN" -Value "Warning: Duplicate SPN check failed.`r`nThe query may have timed-out or may have returned no results.`r`nYou can use 'setspn.exe -f -q */$($farmname)' to query for duplicate SPN's in the forest.`r`n."
+            $entryCount = [int]$re.Entries.Count
+
+            if ($entryCount -eq 0) {
+                $gsad | Add-Member -MemberType NoteProperty -Name "Duplicate SPN Check" -Value "Error: No SPN entries were returned for farm name '$farmname'. Exactly one entry is expected.`r`nThis may indicate missing SPNs for the AD FS service account."
+            } elseif ($entryCount -gt 1) {
+                $obj= $re.Entries | ForEach-Object { 
+                                    [String]::Format("`r`nAccount: {0}`r`nSPNs : {1}`n",
+                                                $_.distinguishedName ,  
+                                                ($_.Attributes.'serviceprincipalname'.GetValues('string') -join " ; ") )
+                                                }
+                $gsad | Add-Member -MemberType NoteProperty -Name "Duplicate SPN Check" -Value ("Error: Duplicate SPN entries detected for farm name '$farmname'. Exactly one entry is expected, but $entryCount were returned.`r`n" + $obj)
+            } else {
+                $obj= $re.Entries | ForEach-Object { 
+                                    [String]::Format("`r`nAccount: {0}`r`nSPNs : {1}`n",
+                                                $_.distinguishedName ,  
+                                                ($_.Attributes.'serviceprincipalname'.GetValues('string') -join " ; ") )
+                                                }
+                $gsad | Add-Member -MemberType NoteProperty -Name "Duplicate SPN Check" -Value ("Success: Exactly one SPN entry was returned for farm name '$farmname'.`r`n" + $obj)
+            }
         }
     }
 
@@ -2678,6 +3125,7 @@ function Get-ServiceAccountDetails {
     }
 
     #Finally validate that Kerberos Etype Config is sound and we have a matching config between OS and Service Account
+    #some message strings
     $RC4NotSetMsg="The Service Account is not configured for AES support. Service tickets will be RC4 encrypted!
     `r`nWe recommend configuring the ADFS Service Account for AES Support.`r`nIn Active Directory configure the attribute 'msds-supportedencryptiontypes' for the ADFS ServiceAccount with a value of:`r`n24(decimal) => AES only `n or `n28(decimal) => AES & RC4" 
     
@@ -2685,14 +3133,17 @@ function Get-ServiceAccountDetails {
     `r`nThis configuration can lead to authentication failures and other erroneous behavior and MUST be corrected.
     `r`nWe recommend configuring the ADFS Service Account for AES Support.`r`nIn Active Directory configure the attribute 'msds-supportedencryptiontypes' for the ADFS ServiceAccount with a value of:`r`n24(decimal) => AES only `n or `n28(decimal) => AES & RC4" 
     
+    #get KrbConfig from OS Policy
     $HostKrbCfg = Test-KRBEncTypePolicy 
 
     #theoretically this cannot be null unless the module failed
     if (!($null -eq $HostKrbCfg)) {
          $gsad | Add-Member -MemberType NoteProperty -Name "KrbEtype from OS (Policy)" -Value $($HostKrbCfg -join " | ") 
     }
+
     #check etypes from ServiceAccountQuery if not set or explicitly 0 default to RC4
     #if we failed to find service account previously..skip etype config evaluation
+
     switch ($EncType) {   
         0  { $SvcKrbCfg = "RC4_HMAC"; 
              $gsad | Add-Member -MemberType NoteProperty -Name "KrbEtype from ServiceAccount" -Value "explicitly set to 0. Defaulting to RC4_HMAC"  
@@ -2742,7 +3193,7 @@ function Get-ServiceAccountDetails {
 Function GetADFSConfig {
     
     Push-Location $TraceDir
-    if ($isProxy) { # ADFS proxy 2012
+    if ($isproxy) { # ADFS proxy 2012
 	    if ($WinVer -eq [Version]"6.2.9200" ) {
 		    Get-AdfsProxyProperties | format-list * | Out-file "Get-AdfsProxyProperties.txt"
 	    }
@@ -2859,7 +3310,7 @@ Function EndOfCollection {
 }
 
 Function GetDRSConfig {
-    if ((-Not $isProxy) -And ($WinVer -gt [Version]"6.2.9200"))	{
+    if ((-Not $isproxy) -And ($WinVer -gt [Version]"6.2.9200"))	{
 		Push-Location $TraceDir
 		Get-AdfsDeviceRegistrationUpnSuffix | format-list * | Out-file "Get-AdfsDeviceRegistrationUpnSuffix.txt"
 		Try { $drs= Get-AdfsDeviceRegistration; $drs| Out-file "Get-AdfsDeviceRegistration.txt" }  Catch { $_.Exception.Message | Out-file "Get-AdfsDeviceRegistration.txt" }
@@ -3037,6 +3488,8 @@ return $htmlTemplate
 #endregion
 ##########################################################################
 #region Execution
+
+
 # EULA check - verify acceptance before proceeding
 if ($AcceptEula) {
     Set-EULAAccepted -Accepted $true
@@ -3052,122 +3505,123 @@ elseif (!(Test-EULAAccepted)) {
 }
 
 if ((IsAdminAccount) -AND (IsServerOS)){
-    Write-host "`n`n`n`n`n`n`nEULA accepted. Resuming execution" -ForegroundColor Green
-    $isProxy = Test-IsWAPInstalled
-    if ([string]::IsNullOrEmpty($Path)) {
-        $RunProp = RunDialog
-        $Path = $RunProp.Path.ToString()
-        $TraceEnabled = $RunProp.TraceEnabled
-        $NetTraceEnabled = $RunProp.NetTraceEnabled
-        $ConfigOnly = $RunProp.ConfigOnly
-        $PerfCounter = $RunProp.PerfCounter
-        $LdapTraceEnabled= $RunProp.LdapTraceEnabled
-        $WAPTraceEnabled= $RunProp.WAPTraceEnabled
-    }
-    elseif (![string]::IsNullOrEmpty($Path)) {
-        if($Tracing.IsPresent -eq $false){ $TraceEnabled=$false;$NetTraceEnabled=$false;$PerfCounter=$false;$LdapTraceEnabled=$false;$ConfigOnly=$true;$WAPTraceEnabled=$false }
-        else {
-            $TraceEnabled=$true;
-            $ConfigOnly=$false;
-            $LdapTraceEnabled=$false
-            $WAPTraceEnabled=$false
-            $PerfCounter=$false
-            if($NetworkTracing.IsPresent -eq $true){ $NetTraceEnabled=$true } else { $NetTraceEnabled=$false }
-            if($PerfTracing.IsPresent -eq $true) { $PerfCounter=$true } 
-            if(($LDAPTracing.IsPresent -eq $true) -and (!$isProxy)) {  $LdapTraceEnabled=$true }  
-            if(($WAPTracing.IsPresent -eq $true) -and ($isProxy))  { $WAPTraceEnabled=$true } 
-        }
-    }
-
-    if(Test-Path -Path $Path) { Write-host "Destinationfolder: '$($Path)' already exists. Starting Data Collection..." -ForegroundColor DarkCyan }
+Write-host "`n`n`n`n`n`n`nEULA accepted. Resuming execution" -ForegroundColor Green
+$isProxy = Test-IsWAPInstalled
+if ([string]::IsNullOrEmpty($Path)) {
+    $RunProp = RunDialog
+    $Path = $RunProp.Path.ToString()
+    $TraceEnabled = $RunProp.TraceEnabled
+    $NetTraceEnabled = $RunProp.NetTraceEnabled
+    $ConfigOnly = $RunProp.ConfigOnly
+    $PerfCounter = $RunProp.PerfCounter
+    $LdapTraceEnabled= $RunProp.LdapTraceEnabled
+    $WAPTraceEnabled= $RunProp.WAPTraceEnabled
+}
+elseif (![string]::IsNullOrEmpty($Path)) {
+    if($Tracing.IsPresent -eq $false){ $TraceEnabled=$false;$NetTraceEnabled=$false;$PerfCounter=$false;$LdapTraceEnabled=$false;$ConfigOnly=$true;$WAPTraceEnabled=$false }
     else {
-        Write-host "Destinationfolder: '$($Path)' does not exist. Creating Folder" -ForegroundColor DarkCyan
-        New-Item -ItemType directory -Path $Path -Force | Out-Null
+        $TraceEnabled=$true;
+        $ConfigOnly=$false;
+        $LdapTraceEnabled=$false
+        $WAPTraceEnabled=$false
+        $PerfCounter=$false
+        if($NetworkTracing.IsPresent -eq $true){ $NetTraceEnabled=$true } else { $NetTraceEnabled=$false }
+        if($PerfTracing.IsPresent -eq $true) { $PerfCounter=$true } 
+        if(($LDAPTracing.IsPresent -eq $true) -and (!$isproxy)) {  $LdapTraceEnabled=$true }  
+        if(($WAPTracing.IsPresent -eq $true) -and ($isproxy))  { $WAPTraceEnabled=$true } 
     }
-    $FEL=$Global:FormatEnumerationLimit  ##secure current EnumLimit.Script should revert to this value at the end of execution
-    $Global:FormatEnumerationLimit=-1
+}
 
-    $TraceDir = $Path +"\temporary"
-# Save execution output to file
-    Write-host "Creating Temporary Folder" -ForegroundColor DarkCyan
-    New-Item -ItemType directory -Path $TraceDir -Force | Out-Null
-    if($PSVersionTable.PSVersion -le [Version]'4.0') { Start-Transcript -Path "$TraceDir\transscript_output.txt" -Append |out-null} else { Start-Transcript -Path "$TraceDir\transscript_output.txt" -Append -IncludeInvocationHeader |out-null}
-    Write-Host "Script version             : "  -ForegroundColor DarkCyan -NoNewline; Write-Host "$($scriptversion)" -ForegroundColor Yellow;
-    Write-Host "Debug logs will be saved in: "  -ForegroundColor DarkCyan -NoNewline; Write-Host "$($Path)" -ForegroundColor Yellow;
-    Write-Host "Options selected:  TracingEnabled:"$TraceEnabled "NetworkTrace:" $NetTraceEnabled " ConfigOnly:" $ConfigOnly " PerfCounter:" $PerfCounter " LDAPTrace:" $LdapTraceEnabled "WAPTrace:" $WAPTraceEnabled -ForegroundColor DarkCyan
-    Write-Progress -Activity "Preparation" -Status 'Setup Data Directory' -percentcomplete 5
-
-    if ($TraceEnabled) {
-        $MessageTitle = "Initialization completed`n"
-        $MessageIse = "Data Collection is ready to start.`nPrepare other computers to start collecting data.`n`nWhen ready, Click OK to start the collection...`n"
-        $MessageC = "`nData Collection is ready to start.`nPrepare other computers to start collecting data.`n`nWhen ready, press CTRL+Y to start the collection...`n"
-        Pause $MessageIse $MessageTitle $MessageC
-    }
-
-    Write-Host "Tracing started. Current UTC time: "-ForegroundColor DarkCyan -NoNewline; Write-Host "$([DateTime]::UtcNow)" -ForegroundColor Yellow
-    Write-Host "Timezone: " -ForegroundColor DarkCyan -NoNewline; Write-Host "$([System.TimeZoneInfo]::Local.DisplayName)" -ForegroundColor Yellow
-
-    Write-Progress -Activity "Gathering Configuration Data" -Status 'Getting ADFS Configuration' -percentcomplete 7
-        GetADFSConfig
-        GetDRSConfig
-        Clear-DnsClientCache
-
-
-    Write-Progress -Activity "Enable Logging" -Status 'Eventlogs' -percentcomplete 15
-    $starttime = (get-date)
-
-    Write-host "Configuring Event Logging" -ForegroundColor DarkCyan
-    if ($isProxy) 	{ EnableDebugEvents $WAPDebugEvents  }
-    else 			{ EnableDebugEvents $ADFSDebugEvents }
-
-    Write-Progress -Activity "Enable Logging" -Status 'Netlogon Debug Logging' -percentcomplete 30
-    EnableNetlogonDebug
-
-    Write-Progress -Activity "Enable Logging" -Status 'Additional ETL Logging' -percentcomplete 40
-        LogManStart
-        EnableNetworkTrace
-        EnablePerfCounter
-        EnableLDAPTrace
-        EnableWAPTrace
-
-    if($TraceEnabled) {
-        Write-Progress -Activity "Ready for Repro" -Status 'Waiting for Repro' -percentcomplete 50
-        $MessageTitle = "Data Collection Running"
-        $MessageIse = "Data Collection is currently running`nProceed reproducing the problem now or`n`nPress OK to stop the collection...`n"
-        $MessageC = "Data Collection is currently running`nProceed reproducing the problem now or `n`nPress CTRL+Y to stop the collection...`n"
-        Pause $MessageIse $MessageTitle $MessageC
-    }
-
-    Write-Progress -Activity "Collecting" -Status 'Stop Event logging' -percentcomplete 55
-    if ($isProxy) 	{ DisableDebugEvents $WAPDebugEvents }
-    else 			{ DisableDebugEvents $ADFSDebugEvents }
-
-    Write-Progress -Activity "Collecting" -Status 'Stop additional logs' -percentcomplete 65
-        LogManStop
-        DisableNetworkTrace
-        DisablePerfCounter
-        DisableNetlogonDebug
-        DisableLDAPTrace
-        DisableWAPTrace
-
-    Write-Progress -Activity "Collecting" -Status 'Getting otherlogs' -percentcomplete 70
-        GatherTheRest
-
-    Write-Host "Tracing ended. Current UTC time: " -ForegroundColor DarkCyan -NoNewline; Write-host "$([DateTime]::UtcNow)" -ForegroundColor Yellow
-    Write-Progress -Activity "Collecting" -Status 'Exporting Eventlogs' -percentcomplete 85
-    [int]$endtimeinmsec= (New-TimeSpan -start $starttime -end (get-date).AddMinutes(5)).TotalMilliseconds
-
-    if ($isProxy) 	{ ExportEventLogs $WAPExportEvents $endtimeinmsec }
-    else 			{ ExportEventLogs $ADFSExportEvents $endtimeinmsec }
-    $Global:FormatEnumerationLimit=$FEL
-    Write-Progress -Activity "Saving" -Status 'Compressing Files - This may take some moments to complete' -percentcomplete 95
-    Write-host "Almost done. We are compressing all Files. Please wait" -ForegroundColor Green
-        EndOfCollection
-
-    }
+if(Test-Path -Path $Path) { Write-host "Destinationfolder: '$($Path)' already exists. Starting Data Collection..." -ForegroundColor DarkCyan }
 else {
-    if (-not (IsAdminAccount)) { Write-Host "You do not have Administrator rights! Please re-run this script as an Administrator!" -ForegroundColor Red }
-    if (-not (IsServerOS))     { Write-Host "This script must be run on a Windows Server OS!" -ForegroundColor Red }
-    Break
+    Write-host "Destinationfolder: '$($Path)' does not exist. Creating Folder" -ForegroundColor DarkCyan
+    New-Item -ItemType directory -Path $Path -Force | Out-Null
+ }
+$FEL=$Global:FormatEnumerationLimit  ##secure current EnumLimit.Script should revert to this value at the end of execution
+$Global:FormatEnumerationLimit=-1
+
+$TraceDir = $Path +"\temporary"
+# Save execution output to file
+Write-host "Creating Temporary Folder" -ForegroundColor DarkCyan
+New-Item -ItemType directory -Path $TraceDir -Force | Out-Null
+if($PSVersionTable.PSVersion -le [Version]'4.0') { Start-Transcript -Path "$TraceDir\transscript_output.txt" -Append |out-null} else { Start-Transcript -Path "$TraceDir\transscript_output.txt" -Append -IncludeInvocationHeader |out-null}
+Write-Host "Script version             : "  -ForegroundColor DarkCyan -NoNewline; Write-Host "$($scriptversion)" -ForegroundColor Yellow;
+Write-Host "Debug logs will be saved in: "  -ForegroundColor DarkCyan -NoNewline; Write-Host "$($Path)" -ForegroundColor Yellow;
+Write-Host "Options selected:  TracingEnabled:"$TraceEnabled "NetworkTrace:" $NetTraceEnabled " ConfigOnly:" $ConfigOnly " PerfCounter:" $PerfCounter " LDAPTrace:" $LdapTraceEnabled "WAPTrace:" $WAPTraceEnabled -ForegroundColor DarkCyan
+
+Write-Progress -Activity "Preparation" -Status 'Setup Data Directory' -percentcomplete 5
+
+if ($TraceEnabled) {
+$MessageTitle = "Initialization completed`n"
+$MessageIse = "Data Collection is ready to start.`nPrepare other computers to start collecting data.`n`nWhen ready, Click OK to start the collection...`n"
+$MessageC = "`nData Collection is ready to start.`nPrepare other computers to start collecting data.`n`nWhen ready, press CTRL+Y to start the collection...`n"
+Pause $MessageIse $MessageTitle $MessageC
+}
+
+Write-Host "Tracing started. Current UTC time: "-ForegroundColor DarkCyan -NoNewline; Write-Host "$([DateTime]::UtcNow)" -ForegroundColor Yellow
+Write-Host "Timezone: " -ForegroundColor DarkCyan -NoNewline; Write-Host "$([System.TimeZoneInfo]::Local.DisplayName)" -ForegroundColor Yellow
+
+Write-Progress -Activity "Gathering Configuration Data" -Status 'Getting ADFS Configuration' -percentcomplete 7
+    GetADFSConfig
+    GetDRSConfig
+    Clear-DnsClientCache
+
+
+Write-Progress -Activity "Enable Logging" -Status 'Eventlogs' -percentcomplete 15
+$starttime = (get-date)
+
+Write-host "Configuring Event Logging" -ForegroundColor DarkCyan
+if ($isproxy) 	{ EnableDebugEvents $WAPDebugEvents  }
+else 			{ EnableDebugEvents $ADFSDebugEvents }
+
+Write-Progress -Activity "Enable Logging" -Status 'Netlogon Debug Logging' -percentcomplete 30
+EnableNetlogonDebug
+
+Write-Progress -Activity "Enable Logging" -Status 'Additional ETL Logging' -percentcomplete 40
+LogManStart
+EnableNetworkTrace
+EnablePerfCounter
+EnableLDAPTrace
+EnableWAPTrace
+
+if($TraceEnabled) {
+Write-Progress -Activity "Ready for Repro" -Status 'Waiting for Repro' -percentcomplete 50
+$MessageTitle = "Data Collection Running"
+$MessageIse = "Data Collection is currently running`nProceed reproducing the problem now or`n`nPress OK to stop the collection...`n"
+$MessageC = "Data Collection is currently running`nProceed reproducing the problem now or `n`nPress CTRL+Y to stop the collection...`n"
+Pause $MessageIse $MessageTitle $MessageC
+}
+
+Write-Progress -Activity "Collecting" -Status 'Stop Event logging' -percentcomplete 55
+if ($isproxy) 	{ DisableDebugEvents $WAPDebugEvents }
+else 			{ DisableDebugEvents $ADFSDebugEvents }
+
+Write-Progress -Activity "Collecting" -Status 'Stop additional logs' -percentcomplete 65
+    LogManStop
+    DisableNetworkTrace
+    DisablePerfCounter
+    DisableNetlogonDebug
+    DisableLDAPTrace
+    DisableWAPTrace
+
+Write-Progress -Activity "Collecting" -Status 'Getting otherlogs' -percentcomplete 70
+GatherTheRest
+
+Write-Host "Tracing ended. Current UTC time: " -ForegroundColor DarkCyan -NoNewline; Write-host "$([DateTime]::UtcNow)" -ForegroundColor Yellow
+Write-Progress -Activity "Collecting" -Status 'Exporting Eventlogs' -percentcomplete 85
+[int]$endtimeinmsec= (New-TimeSpan -start $starttime -end (get-date).AddMinutes(5)).TotalMilliseconds
+
+if ($isproxy) 	{ ExportEventLogs $WAPExportEvents $endtimeinmsec }
+else 			{ ExportEventLogs $ADFSExportEvents $endtimeinmsec }
+$Global:FormatEnumerationLimit=$FEL
+Write-Progress -Activity "Saving" -Status 'Compressing Files - This may take some moments to complete' -percentcomplete 95
+Write-host "Almost done. We are compressing all Files. Please wait" -ForegroundColor Green
+EndOfCollection
+
+}
+else {
+if (-not (IsAdminAccount)) { Write-Host "You do not have Administrator rights! Please re-run this script as an Administrator!" -ForegroundColor Red }
+if (-not (IsServerOS))     { Write-Host "This script must be run on a Windows Server OS!" -ForegroundColor Red }
+Break
 }
 #endregion
