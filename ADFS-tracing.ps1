@@ -330,7 +330,7 @@ function Get-UILocalizedStrings {
         NetTraceLabel    = "Include Network Traces"
         PerfLabel        = "Include Performance Counter"
         AdvancedHeader   = "Advanced Options"
-        AdvancedWarning  = if (!$isproxy) { "My cause service restarts" } else { $null }
+        AdvancedWarning  = if (!$isproxy) { "May cause service restarts" } else { $null }
         AdvancedLabel    = if (!$isproxy) { "LDAP Traces" } else { "WAP Traces" }
         DestFolder       = "Destination Folder"
         BrowseBtn        = "Browse..."
@@ -1901,7 +1901,7 @@ Function IsServerOS {
     $regkey = "HKLM:SYSTEM\CurrentControlSet\Control\ProductOptions"
     $name = "ProductType"
     $regkeyvalue = Get-ItemProperty -Path $regkey -Name $name -ErrorAction Ignore
-    #return value can be "WinNT" for client OS, "ServerNT" for server OS and "LanmanNT" for domain controllers. We consider both ServerNT and LanmanNT as Server OS
+    #return value can be "WinNT" for client OS, "ServerNT" for server OS and "LanmanNT" for domain controllers. We consider aboth ServerNT and LanmanNT as Server OS
     return $regkeyvalue.ProductType -ne 'WinNT'
 }
 
