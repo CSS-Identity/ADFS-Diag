@@ -3126,12 +3126,12 @@ function Get-ServiceAccountDetails {
 
     #Finally validate that Kerberos Etype Config is sound and we have a matching config between OS and Service Account
     #some message strings
-    $RC4NotSetMsg="The Service Account is not configured for AES support. Service tickets will be RC4 encrypted!
-    `r`nWe recommend configuring the ADFS Service Account for AES Support.`r`nIn Active Directory configure the attribute 'msds-supportedencryptiontypes' for the ADFS ServiceAccount with a value of:`r`n24(decimal) => AES only `n or `n28(decimal) => AES & RC4" 
+    $RC4NotSetMsg="The Service Account is not properly configured for AES support. Starting in January 2026, RC4 encryption for kerberos is being phased out/deprecated.
+    `r`nTo prevent authentication issues it is strongly recommend configuring the ADFS Service Account for AES Support.`r`nIn Active Directory, configure the attribute 'msds-supportedencryptiontypes' for the ADFS ServiceAccount with a value of:`r`n24(decimal)" 
     
     $RC4NoPolicysupMsg="The ADFS service account is not configured properly. Local policy/registry for KerberosEncryptionTypes disabled RC4 support,`r`nbut the service account has not been configured for AES support.
     `r`nThis configuration can lead to authentication failures and other erroneous behavior and MUST be corrected.
-    `r`nWe recommend configuring the ADFS Service Account for AES Support.`r`nIn Active Directory configure the attribute 'msds-supportedencryptiontypes' for the ADFS ServiceAccount with a value of:`r`n24(decimal) => AES only `n or `n28(decimal) => AES & RC4" 
+    `r`nWe recommend configuring the ADFS Service Account for AES Support.`r`nIn Active Directory configure the attribute 'msds-supportedencryptiontypes' for the ADFS ServiceAccount with a value of:`r`n24(decimal)" 
     
     #get KrbConfig from OS Policy
     $HostKrbCfg = Test-KRBEncTypePolicy 
@@ -3146,10 +3146,10 @@ function Get-ServiceAccountDetails {
 
     switch ($EncType) {   
         0  { $SvcKrbCfg = "RC4_HMAC"; 
-             $gsad | Add-Member -MemberType NoteProperty -Name "KrbEtype from ServiceAccount" -Value "explicitly set to 0. Defaulting to RC4_HMAC"  
+             $gsad | Add-Member -MemberType NoteProperty -Name "KrbEtype from ServiceAccount" -Value "explicitly set to 0. After April 2026 defaults to AES-Sha1. On unpatched/legacy DCs defaults to RC4_HMAC"  
            } 
         -1 { $SvcKrbCfg = "RC4_HMAC";
-             $gsad | Add-Member -MemberType NoteProperty -Name "KrbEType from ServiceAccount" -Value "not configured. Defaulting to RC4_HMAC"  
+             $gsad | Add-Member -MemberType NoteProperty -Name "KrbEType from ServiceAccount" -Value "not configured. After April 2026 defaults to AES-Sha1. On unpatched/legacy DCs defaults to RC4_HMAC"  
            }
         -2 { #we failed to find service account previously..nothing to evaluate here
              $gsad | Add-Member -MemberType NoteProperty -Name "KrbEType from ServiceAccount" -Value "Failed to enumerate ServiceAccount"  
